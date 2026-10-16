@@ -1,0 +1,13 @@
+[project]
+name = "recruiter-service"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.0",
+    "fastapi[standard]>=0.142.2",
+    "psycopg2-binary>=2.9.13",
+    "sqlmodel>=0.0.48",
+    "uvicorn>=0.54.0",
+]

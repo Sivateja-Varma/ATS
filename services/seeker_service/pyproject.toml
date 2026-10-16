@@ -1,0 +1,20 @@
+[project]
+name = "seeker-service"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.0",
+    "faiss-cpu>=1.15.1",
+    "fastapi[standard]>=0.142.2",
+    "langchain>=1.4.4",
+    "langchain-community>=0.4.2",
+    "langchain-core>=1.6.9",
+    "langchain-ollama>=1.1.0",
+    "psycopg2-binary>=2.9.13",
+    "pypdf>=6.20.0",
+    "python-multipart>=0.0.32",
+    "sqlmodel>=0.0.48",
+    "uvicorn>=0.54.0",
+]
