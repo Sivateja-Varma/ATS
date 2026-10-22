@@ -8,14 +8,25 @@ class Roles(str,Enum):
   seeker="seeker"
   staffing="staffing"
 
-class UserPublic(SQLModel):
+class UserReq(SQLModel):
   email:str
   name:str
   user_pass:str
   role:str
 
-class RegUSer(UserPublic):
+class LoginModel(SQLModel):
+  email:str
+  password:str  
+
+class UserPublic(SQLModel):
+  id:int
+  email:str  
+  name:str
+  role:str
+
+class RegUSer(UserReq):
   role:Roles  
 
-class User(UserPublic,table=True):
+class User(UserReq,table=True):
   id : int|None = Field(default=None,primary_key=True)  
+  email:str = Field(index=True,unique=True)

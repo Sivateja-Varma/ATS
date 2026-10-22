@@ -1,7 +1,8 @@
-from fastapi import FastAPI,status,HTTPException,Form,UploadFile,File
+from fastapi import FastAPI,status,HTTPException,Form,UploadFile,File,Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.concurrency import run_in_threadpool
 from contextlib import asynccontextmanager
+from Shared.finalToken import RoleCheck
 import aiohttp
 from pydantic import BaseModel,Field as PydanticField
 from typing import Annotated,List
@@ -49,7 +50,7 @@ def allSeekers(session:SessionDep,search:str|None=None):
         ).fetchall()
      return seekers 
   seekers=session.exec(select(Seeker)).all()
-  storage=[{"id":seeker.id,"name":seeker.name,"strengths":seeker.strengths,"resume_path":f"{os.getenv("LOCAL_PATH")}{seeker.resume_path}"} for seeker in seekers]
+  storage=[{"id":seeker.id,"name":seeker.name,"strengths":seeker.strengths,"resume_path":f"{os.getenv("LOCAL_PATH")}{seeker.resume_path}","user_id":seeker.user_id,"email":seeker.email} for seeker in seekers]
   return storage
 
 @app.get('/seeker',summary='endpoint to get one specific registered seeker on the platform',description='specific registered seeker based on id')
@@ -64,7 +65,7 @@ def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
 @app.post('/registerSeeker',summary='endpoint to create user',description='resume can be added after creation')
-async def createSeeker(info:Annotated[str|None,Form(...)],session:SessionDep,resume:UploadFile=File(None)):
+async def createSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict=Depends(RoleCheck(['seeker']))):
   # try:
   path = None
   strengths = []
@@ -77,7 +78,6 @@ async def createSeeker(info:Annotated[str|None,Form(...)],session:SessionDep,res
     docs=loader.load()
     splitter=RecursiveCharacterTextSplitter(chunk_size=300,chunk_overlap=30)
     splits=splitter.split_documents(docs)
-
     embedding=OllamaEmbeddings(model='mxbai-embed-large:latest')
 
     db=FAISS.from_documents(splits,embedding)
@@ -98,7 +98,7 @@ async def createSeeker(info:Annotated[str|None,Form(...)],session:SessionDep,res
     if structured_data and hasattr(structured_data, 'skills'):
         strengths = structured_data.skills
 
-  seeker=Seeker(name=info,strengths=strengths,resume_path=path) 
+  seeker=Seeker(name=user.get('name'),email=user.get('email'),user_id=user.get('id'),strengths=strengths,resume_path=path) 
   def Save():
     session.add(seeker)
     session.commit()

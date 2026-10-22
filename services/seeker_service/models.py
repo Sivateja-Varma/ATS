@@ -16,7 +16,18 @@ class SeekerPublic(SQLModel):
   strengths:List[str] = Field(sa_column=Column(JSON))
   resume_path:str|None=Field(default=None)
 
+# class SeekerPublicDisplay(SQLModel):
+#   name:str
+#   strengths:List[str]
+#   resume_path:str
+#   email:str
+#   user_id:int
+#   id:int
+
+
 class Seeker(SeekerPublic,table=True):
   id : int | None = Field(default=None,primary_key=True)
+  user_id:int=Field(unique=True,index=True)
+  email:str=Field(unique=True,index=True)
 
 

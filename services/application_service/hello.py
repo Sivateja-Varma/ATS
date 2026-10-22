@@ -86,6 +86,35 @@ async def createApplication(session:SessionDep,apply:ApplicationPublic):
     else:
       raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="job not found")
 
+@app.put('/forward')
+async def moveForward(id:int,session:SessionDep):
+  try:
+    application=session.get(Application,id)
+    if application is None:
+      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Application not found")
+    async with app.state.messageSesh.get('http://127.0.0.1:8001/posting',params={"id":application.job_id}) as resp:
+      job=await resp.json()
+ 
+    if application.current_round is None and application.status != "rejected":
+       application.current_round=0
+       application.status="reviewed"  
+
+    if application.current_round == 0 and application.status not in ['submitted','rejected']: 
+       if application.current_round<len(job.get('rounds')):  
+            application.current_round+=1
+       else:
+            application.status="selected"    
+    
+    def Sync():
+      session.commit()  
+      session.refresh(application)
+      return application
+    final_application=await run_in_threadpool(Sync) 
+    return final_application
+  except Exception as e:
+     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong")    
+    
+
 
 
 # # 1. Convert all seeker strengths to lowercase sets

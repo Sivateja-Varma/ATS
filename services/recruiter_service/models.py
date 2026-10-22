@@ -20,8 +20,10 @@ class JobStatus(str,Enum):
 class JobPostPublic(SQLModel):
   role:str
   description:str = Field(max_length=3000) 
-  keywords:List[Keyword]=Field(max_items=3,sa_column=Column(JSON)) 
-  
+  keywords:List[str]=Field(sa_column=Column(JSON)) 
+  rounds:list[str]=Field(sa_column=Column(JSON))
+
+ 
 
 class JobPost(JobPostPublic,table=True):
   id : int | None= Field(default=None,primary_key=True)
