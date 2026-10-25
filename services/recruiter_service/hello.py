@@ -55,6 +55,7 @@ async def jobMetrics(id:int,session:SessionDep,recruiter:str=Depends(RoleCheck([
 
 #build some kind of search so that a recruiter can see candidates based on fields 
 
+
 @app.get('/searchCandidate')
 async def searchCandidate(search:str,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
   async with app.state.messageSesh.get('http://127.0.0.1:8000/seekers',params={"search":search}) as resp:
