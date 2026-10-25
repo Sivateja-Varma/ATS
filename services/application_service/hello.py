@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 import aiohttp
 import json
 from sqlmodel import select,desc
-from .models import Application,ApplicationPublic
+from .models import Application,ApplicationPublic,Status
 from fastapi.concurrency import run_in_threadpool
 from .db import SessionDep
 
@@ -32,7 +32,7 @@ async def allApplications(session:SessionDep,job_id:int|None=None):
             async with app.state.messageSesh.get('http://127.0.0.1:8000/seeker',params={"id":i.cand_id}) as resp:
                cand = await resp.json()
                resumes.append(cand.get('resume_path'))
-          storage=[{"id":j.id,"job_id":j.job_id,"cand_id":j.cand_id,"score":j.score,"status":j.status,"applied_at":j.applied_at,"resume_path":resumes[i]} for i,j in enumerate(specific)]
+          storage=[{"id":j.id,"job_id":j.job_id,"cand_id":j.cand_id,"score":j.score,"status":j.status,"applied_at":j.applied_at, "current_round": j.current_round,"resume_path":resumes[i]} for i,j in enumerate(specific)]
           return storage
     statement=select(Application)
     apps_db=await run_in_threadpool(session.exec,statement)
@@ -43,7 +43,7 @@ async def allApplications(session:SessionDep,job_id:int|None=None):
           cand = await resp.json()
           resumes.append(cand.get('resume_path'))
     print(resumes)
-    storage=[{"id":j.id,"job_id":j.job_id,"cand_id":j.cand_id,"score":j.score,"status":j.status,"applied_at":j.applied_at,"resume_path":resumes[i]} for i,j in enumerate(apps)]
+    storage=[{"id":j.id,"job_id":j.job_id,"cand_id":j.cand_id,"score":j.score,"status":j.status,"applied_at":j.applied_at, "current_round": j.current_round,"resume_path":resumes[i]} for i,j in enumerate(apps)]
     return storage 
   except Exception as e:
     print(e)
@@ -57,7 +57,7 @@ async def oneApplication(session:SessionDep,id:int):
   async with app.state.messageSesh.get('http://127.0.0.1:8000/seeker',params={"id":application.cand_id}) as resp:
      body=await resp.json()
      resume=body.get('resume_path')
-  return {"id":application.id,"job_id":application.job_id,"cand_id":application.cand_id,"score":application.score,"status":application.status,"applied_at":application.applied_at,"resume_path":resume}
+  return {"id":application.id,"job_id":application.job_id,"cand_id":application.cand_id,"score":application.score,"status":application.status,"applied_at":application.applied_at,"resume_path":resume,"current_round":application.current_round}
   
 
 @app.post('/createApplication')
@@ -94,15 +94,17 @@ async def moveForward(id:int,session:SessionDep):
       raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Application not found")
     async with app.state.messageSesh.get('http://127.0.0.1:8001/posting',params={"id":application.job_id}) as resp:
       job=await resp.json()
- 
-    if application.current_round is None and application.status != "rejected":
-       application.current_round=0
-       application.status="reviewed"  
 
-    if application.current_round == 0 and application.status not in ['submitted','rejected']: 
-       if application.current_round<len(job.get('rounds')):  
+    if application.current_round is None and application.status != "rejected":
+        application.current_round=0
+        application.status=Status.reviewed 
+
+    if application.current_round == 0 or application.status not in ['submitted','rejected']: 
+        if application.current_round==0:  
             application.current_round+=1
-       else:
+        elif  application.current_round<len(job.get('rounds',[])):
+          application.current_round+=1    
+        else:
             application.status="selected"    
     
     def Sync():

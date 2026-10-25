@@ -40,7 +40,7 @@ def userRegister(chap:RegUSer,session:SessionDep):
 def userLogin(chap:LoginModel,session:SessionDep):
   user=session.exec(select(User).where(User.email==chap.email)).first()
   if not user or not verifyFunc(user.user_pass,chap.password):
-    raise Exception(status=status.HTTP_400_BAD_REQUEST,detail="try again")
+    raise HTTPException(status=status.HTTP_400_BAD_REQUEST,detail="try again")
 
   token={"id":user.id,"role":user.role,'email':user.email,'name':user.name}
   jwt=tokenizeFunc(token)
