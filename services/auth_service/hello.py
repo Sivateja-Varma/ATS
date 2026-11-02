@@ -38,10 +38,12 @@ def userRegister(chap:RegUSer,session:SessionDep):
 
 @app.post("/login",summary='user login endpoint',description="a consolidated user login endpoint, which sits at the start of the workflow")
 def userLogin(chap:LoginModel,session:SessionDep):
+
   user=session.exec(select(User).where(User.email==chap.email)).first()
   if not user or not verifyFunc(user.user_pass,chap.password):
-    raise HTTPException(status=status.HTTP_400_BAD_REQUEST,detail="try again")
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="try again")
 
   token={"id":user.id,"role":user.role,'email':user.email,'name':user.name}
   jwt=tokenizeFunc(token)
   return {"token_type":"BEARER","token":jwt}
+

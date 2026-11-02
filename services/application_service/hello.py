@@ -1,4 +1,4 @@
-from fastapi import FastAPI,HTTPException,status
+from fastapi import FastAPI,HTTPException,status,Depends
 from contextlib import asynccontextmanager
 import aiohttp
 import json
@@ -6,6 +6,7 @@ from sqlmodel import select,desc
 from .models import Application,ApplicationPublic,Status
 from fastapi.concurrency import run_in_threadpool
 from .db import SessionDep
+from Shared.finalToken import RoleCheck
 
 @asynccontextmanager
 async def Lifespan(app:FastAPI): #this is a async function
@@ -61,30 +62,37 @@ async def oneApplication(session:SessionDep,id:int):
   
 
 @app.post('/createApplication')
-async def createApplication(session:SessionDep,apply:ApplicationPublic):
-   async with app.state.messageSesh.get('http://localhost:8000/seeker',params={"id":apply.cand_id}) as resp:
-    seeker= await resp.json() 
-   async with app.state.messageSesh.get('http://localhost:8001/posting',params={"id":apply.job_id}) as resp:
-    job= await resp.json() 
+async def createApplication(session:SessionDep,apply:ApplicationPublic,check:dict=Depends(RoleCheck(['seeker','recruiter','staffing']))):
+  if check.get('role') == 'seeker':
+    id=check.get('id')
+    async with app.state.messageSesh.get('http://localhost:8000/authSeeker',params={"id":id}) as resp:
+        seeker= await resp.json()
+    async with app.state.messageSesh.get('http://localhost:8001/posting',params={"id":apply.job_id}) as resp:
+        job= await resp.json()    
+  else:   
+    async with app.state.messageSesh.get('http://localhost:8000/seeker',params={"id":apply.cand_id}) as resp:
+      seeker= await resp.json() 
+    async with app.state.messageSesh.get('http://localhost:8001/posting',params={"id":apply.job_id}) as resp:
+      job= await resp.json() 
 
-    if job.get('status') not in ["hold","closed"]:
-          score=0
-          seeker_strengths = {s.lower() for s in seeker.get('strengths', [])}
-          for i in seeker_strengths:
-            if i in job.get('keywords'):
-              score+=1
-          main_application=Application(job_id=job['id'],cand_id=seeker['id'],score=score)
+  if job.get('status') not in ["hold","closed"]:
+      score=0
+      seeker_strengths = {s.lower() for s in seeker.get('strengths', [])}
+      for i in seeker_strengths:
+        if i in job.get('keywords'):
+          score+=1
+      main_application=Application(job_id=job['id'],cand_id=seeker['id'],score=score)
+
       
-          
-          def save_to_db():
-              session.add(main_application)
-              session.commit()
-              session.refresh(main_application)
-              return main_application
-          saved_application = await run_in_threadpool(save_to_db)
-          return saved_application   
-    else:
-      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="job not found")
+      def save_to_db():
+          session.add(main_application)
+          session.commit()
+          session.refresh(main_application)
+          return main_application
+      saved_application = await run_in_threadpool(save_to_db)
+      return saved_application   
+  else:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="job not found")
 
 @app.put('/forward')
 async def moveForward(id:int,session:SessionDep):

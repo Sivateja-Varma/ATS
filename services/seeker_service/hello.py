@@ -61,6 +61,14 @@ def oneSeeker(session:SessionDep,id:int):
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="user not found")
   return {"id":seeker.id,"name":seeker.name,"strengths":seeker.strengths,"resume_path":f"{os.getenv("LOCAL_PATH")}{seeker.resume_path}"}
 
+@app.get('/authSeeker',summary='endpoint to get one specific registered seeker on the platform',description='specific registered seeker based on id')
+def authSeeker(session:SessionDep,id:int):
+
+  seeker=session.exec(select(Seeker).where(Seeker.user_id == id)).first()  #does not raise an error if not found
+  if seeker is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="user not found")
+  return {"id":seeker.id,"name":seeker.name,"strengths":seeker.strengths,"resume_path":f"{os.getenv("LOCAL_PATH")}{seeker.resume_path}"}
+
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
