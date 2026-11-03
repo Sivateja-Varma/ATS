@@ -27,7 +27,7 @@ class SeekerPublic(SQLModel):
 
 class Seeker(SeekerPublic,table=True):
   id : int | None = Field(default=None,primary_key=True)
-  user_id:int=Field(unique=True,index=True)
+  user_id:int=Field(unique=True,index=True,nullable=True)
   email:str=Field(unique=True,index=True)
 
 

@@ -61,7 +61,8 @@ def oneSeeker(session:SessionDep,id:int):
   seeker=session.get(Seeker,id)  #does not raise an error if not found
   if seeker is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="user not found")
-  return {"id":seeker.id,"name":seeker.name,"strengths":seeker.strengths,"resume_path":f"{os.getenv("LOCAL_PATH")}{seeker.resume_path}"}
+  full_resume_path = f"{os.getenv('LOCAL_PATH')}{seeker.resume_path}" if seeker.resume_path else None
+  return {"id":seeker.id,"name":seeker.name,"strengths":seeker.strengths,"resume_path":F"{full_resume_path}"}
 
 @app.get('/authSeeker',summary='endpoint to get one specific registered seeker on the platform',description='specific registered seeker based on id')
 def authSeeker(session:SessionDep,id:int):
@@ -120,8 +121,8 @@ async def createSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict
 
   # start the update for the resume and the workflow should be copied or not and also as of now the latest resume is given everything else is out of scope 
 
-@app.put('/updateSeeker',summary="endpoint to update the resume",description="update the current resume with the latest one")
-async def updateSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict=Depends(RoleCheck(['seeker']))):
+@app.put('/updateResume',summary="endpoint to update the resume",description="update the current resume with the latest one")
+async def updateResume(session:SessionDep,resume:UploadFile=File(None),user:dict=Depends(RoleCheck(['seeker']))):
   person = session.exec(select(Seeker).where(Seeker.user_id==user.get('id'))).first()
   if person is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="User not found")
@@ -165,12 +166,15 @@ async def updateSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict
       await run_in_threadpool(Save)  
       return person
 
+# update the user details other than resume.
 
 
-  #start top recommended jobs based on the strengths and the key word match of the score to the seekers 
+#start top recommended jobs based on the strengths and the key word match of the score to the seekers 
 
 
-  #for deletion there should be two way check that is for a seeker to delete there must be no active applications and the seeker should be deleted first and after the user in the main auth service, as if not i should figure out a way to deal with orphan seekers with no user_id which is not my concern as of now ,so two way check it is !
+#initial plan -> for deletion there should be two way check that is for a seeker to delete there must be no active applications and the seeker should be deleted first and after the user in the main auth service, as if not i should figure out a way to deal with orphan seekers with no user_id which is not my concern as of now ,so two way check it is !
+
+# now -> Enterprise platforms almost never use hard deletes for profiles that have application history. Instead, they use a process called Anonymisation (or Pseudonymisation).
 
 @app.delete('/deleteSeeker',summary="delete ur profile",description="endpoint to delete a seeker profile, only if there is no active application")
 async def deleteSeeker(session:SessionDep,user:dict=Depends(RoleCheck(['seeker']))):
@@ -180,16 +184,25 @@ async def deleteSeeker(session:SessionDep,user:dict=Depends(RoleCheck(['seeker']
   async with app.state.messageSesh.get('http://127.0.0.1:8002/applications',params={"cand_id":chap.id}) as resp:
     application=await resp.json()
   if application:
-    raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail="cannot delete profile when a application is active")  
-  
-  if chap.resume_path is not None:
-    if os.path.exists(chap.resume_path):
-      os.remove(chap.resume_path)
-  def Save():
-    session.delete(chap)
-    session.commit()
-    return "Resume has been deleted , can now delete your main profile with us."
-  await run_in_threadpool(Save)
+    raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail="cannot delete profile when a application is active") 
+  async with app.state.messageSesh.put('http://127.0.0.1:8002/statusWithdrawer',params={"cand_id":chap.id}) as resp:
+      green=await resp.json()
+  async with app.state.messageSesh.delete('http://127.0.0.1:8003/deleteUser',params={'id':chap.user_id}) as resp:
+      if resp.status != 200:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,detail="operation failed") 
+  if green:
+    if chap.resume_path is not None:
+      if os.path.exists(chap.resume_path):
+        os.remove(chap.resume_path)
+    chap.email=F"anonymous{chap.id}@gmail.com"
+    chap.resume_path=None
+    chap.user_id=None
+    chap.strengths=[]    
+    chap.name="anonymous"
+    def Save():
+      session.commit()
+      return "Resume has been deleted , can now delete your main profile with us."
+    await run_in_threadpool(Save)
 
 
 

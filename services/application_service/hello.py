@@ -25,7 +25,7 @@ async def healthCheck():
 async def allApplications(session:SessionDep,job_id:int|None=None,cand_id:int|None=None):
   try:
     if cand_id is not None:
-       statement=select(Application).where(Application.cand_id==cand_id)
+       statement=select(Application).where(Application.cand_id==cand_id,Application.status.in_(['reviewed','rejected','selected']))
        specific_db=await run_in_threadpool(session.exec,statement)
        entry=specific_db.first()
        return True if entry is not None else False
@@ -37,7 +37,11 @@ async def allApplications(session:SessionDep,job_id:int|None=None,cand_id:int|No
           for i in specific:
             async with app.state.messageSesh.get('http://127.0.0.1:8000/seeker',params={"id":i.cand_id}) as resp:
                cand = await resp.json()
-               resumes.append(cand.get('resume_path'))
+               raw_path=cand.get('resume_path')
+               if raw_path is None or str(raw_path).endswith('/None') or raw_path == 'None':
+                        resumes.append("Profile Deleted / Anonymised")
+               else:
+                        resumes.append(raw_path)
           storage=[{"id":j.id,"job_id":j.job_id,"cand_id":j.cand_id,"score":j.score,"status":j.status,"applied_at":j.applied_at, "current_round": j.current_round,"resume_path":resumes[i]} for i,j in enumerate(specific)]
           return storage
     statement=select(Application)
@@ -47,7 +51,12 @@ async def allApplications(session:SessionDep,job_id:int|None=None,cand_id:int|No
     for i in apps:
       async with app.state.messageSesh.get('http://127.0.0.1:8000/seeker',params={"id":i.cand_id}) as resp:
           cand = await resp.json()
-          resumes.append(cand.get('resume_path'))
+          raw_path=cand.get('resume_path')
+          if raw_path is None or str(raw_path).endswith('/None') or raw_path == 'None':
+                  resumes.append("Profile Deleted / Anonymised")
+          else:
+                  resumes.append(raw_path)
+          
     print(resumes)
     storage=[{"id":j.id,"job_id":j.job_id,"cand_id":j.cand_id,"score":j.score,"status":j.status,"applied_at":j.applied_at, "current_round": j.current_round,"resume_path":resumes[i]} for i,j in enumerate(apps)]
     return storage 
@@ -62,7 +71,11 @@ async def oneApplication(session:SessionDep,id:int):
       raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="application not present")
   async with app.state.messageSesh.get('http://127.0.0.1:8000/seeker',params={"id":application.cand_id}) as resp:
      body=await resp.json()
-     resume=body.get('resume_path')
+     raw_path=body.get('resume_path')
+     if raw_path is None or str(raw_path).endswith('/None') or raw_path == 'None':
+            resume="Profile Deleted / Anonymised"
+     else:
+            resume=raw_path
   return {"id":application.id,"job_id":application.job_id,"cand_id":application.cand_id,"score":application.score,"status":application.status,"applied_at":application.applied_at,"resume_path":resume,"current_round":application.current_round}
   
 
@@ -132,7 +145,18 @@ async def moveForward(id:int,session:SessionDep):
   except Exception as e:
      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong")    
     
+#application status toggler rejection!
 
+#application status toggler withdrawn!
+@app.put('/statusWithdrawer',summary='endpoint to change status',description="change the status to withdrawn")
+def statusWithdraw(session:SessionDep,cand_id:int):
+   application=session.exec(select(Application).where(Application.cand_id==cand_id)).first()
+   if application is None:
+      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Application not Found")
+   application.status=Status.withdraw
+   session.commit()
+   return True
+   
 
 
 # # 1. Convert all seeker strengths to lowercase sets

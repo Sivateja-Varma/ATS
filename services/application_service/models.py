@@ -10,6 +10,7 @@ class Status(str,Enum):
   reviewed="reviewed"
   rejected="rejected"
   selected="selected"
+  withdraw="withdraw"
 
 
 class ApplicationPublic(SQLModel):

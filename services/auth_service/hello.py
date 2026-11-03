@@ -47,3 +47,18 @@ def userLogin(chap:LoginModel,session:SessionDep):
   jwt=tokenizeFunc(token)
   return {"token_type":"BEARER","token":jwt}
 
+#delete endpoint
+
+@app.delete('/deleteUser',summary='delete profile',description="account deletion endpoints, all our services are suspended",status_code=status.HTTP_200_OK)
+def deleteUser(session:SessionDep,id:int):
+  try: 
+    chap=session.get(User,id)
+    if not chap:
+      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="user not found")
+    session.delete(chap)
+    session.commit()
+    return True
+  except Exception as e:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong try again")
+
+
