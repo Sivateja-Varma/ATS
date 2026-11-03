@@ -30,8 +30,10 @@ class ExtractedSkills(BaseModel):
 async def lifespan(app:FastAPI):
   basellm=ChatOllama(model='gemma2:2b')
   app.state.llm=basellm.with_structured_output(ExtractedSkills)
+  app.state.messageSesh=aiohttp.ClientSession()
   yield
   app.state.llm=None
+  await app.state.messageSesh.close()
 
 
 
@@ -90,7 +92,7 @@ async def createSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict
 
     db=FAISS.from_documents(splits,embedding)
     print('i am here')
-    ret=db.as_retriever()
+    ret=db.as_retriever(k=10)
     template=ChatPromptTemplate.from_messages(
     [('system','do not hallucinate and only use the {context} as ur sole knowledge base and the main task is to parse the given documents and extract technical keywords from the resume docs example list ["java","python","javascript"], even if u find anything remotely similar to these words for example reactjs is react and react is reactjs capital or small letter doesnt matter but the final words parsed should all be small and also look for sections like "Technical Skills" or "Tech Stack" which already has all the skills listed'),
     ("user","{input}")]
@@ -101,8 +103,8 @@ async def createSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict
             | template
             | app.state.llm
         )
-    structured_data: ExtractedSkills = chain.invoke("Extract all technical programming languages and frameworks.")
-        
+    structured_data: ExtractedSkills = chain.invoke("Extract all technical skills, including programming languages, frameworks, libraries, databases, cloud platforms, DevOps tools, and version control systems.")
+    #always look close on the input and prompt every word, do not change anything unless this is done clearly    
     if structured_data and hasattr(structured_data, 'skills'):
         strengths = structured_data.skills
 
@@ -115,3 +117,80 @@ async def createSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict
   return seeker 
   # except:
   #   raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong try again")
+
+  # start the update for the resume and the workflow should be copied or not and also as of now the latest resume is given everything else is out of scope 
+
+@app.put('/updateSeeker',summary="endpoint to update the resume",description="update the current resume with the latest one")
+async def updateSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict=Depends(RoleCheck(['seeker']))):
+  person = session.exec(select(Seeker).where(Seeker.user_id==user.get('id'))).first()
+  if person is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="User not found")
+  if resume is not None:
+    if os.path.exists(person.resume_path):
+      os.remove(person.resume_path)
+      path = None
+      strengths = []
+      structured_data = None
+      path=F"Resumes/{resume.filename}"
+      with open(path,'wb') as f:
+        f.write(await resume.read())
+      loader=PyPDFLoader(path)
+      docs=loader.load()
+      splitter=RecursiveCharacterTextSplitter(chunk_size=300,chunk_overlap=30)
+      splits=splitter.split_documents(docs)
+      embedding=OllamaEmbeddings(model='mxbai-embed-large:latest')
+
+      db=FAISS.from_documents(splits,embedding)
+      print('i am here')
+      ret=db.as_retriever(k=10)
+      template=ChatPromptTemplate.from_messages(
+      [('system','do not hallucinate and only use the {context} as ur sole knowledge base and the main task is to parse the given documents and extract technical keywords from the resume docs example list ["java","python","javascript"], even if u find anything remotely similar to these words for example reactjs is react and react is reactjs capital or small letter doesnt matter but the final words parsed should all be small and also look for sections like "Technical Skills" or "Tech Stack" which already has all the skills listed'),
+      ("user","{input}")]
+      )
+      print('i am here2')
+      chain = (
+      {"context": ret | format_docs, "input": RunnablePassthrough()}
+      | template
+      | app.state.llm
+      )
+      structured_data: ExtractedSkills = chain.invoke("Extract all technical skills, including programming languages, frameworks, libraries, databases, cloud platforms, DevOps tools, and version control systems and also everything in the technical skills block.")
+      #always look close on the input and prompt every word, do not change anything unless this is done clearly    
+      if structured_data and hasattr(structured_data, 'skills'):
+        strengths = structured_data.skills
+      person.resume_path=path
+      person.strengths=strengths
+      def Save():
+          session.commit()
+          session.refresh(person)
+      await run_in_threadpool(Save)  
+      return person
+
+
+
+  #start top recommended jobs based on the strengths and the key word match of the score to the seekers 
+
+
+  #for deletion there should be two way check that is for a seeker to delete there must be no active applications and the seeker should be deleted first and after the user in the main auth service, as if not i should figure out a way to deal with orphan seekers with no user_id which is not my concern as of now ,so two way check it is !
+
+@app.delete('/deleteSeeker',summary="delete ur profile",description="endpoint to delete a seeker profile, only if there is no active application")
+async def deleteSeeker(session:SessionDep,user:dict=Depends(RoleCheck(['seeker']))):
+  chap=session.exec(select(Seeker).where(Seeker.user_id==user.get('id'))).first()
+  if chap is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="user not found")
+  async with app.state.messageSesh.get('http://127.0.0.1:8002/applications',params={"cand_id":chap.id}) as resp:
+    application=await resp.json()
+  if application:
+    raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail="cannot delete profile when a application is active")  
+  
+  if chap.resume_path is not None:
+    if os.path.exists(chap.resume_path):
+      os.remove(chap.resume_path)
+  def Save():
+    session.delete(chap)
+    session.commit()
+    return "Resume has been deleted , can now delete your main profile with us."
+  await run_in_threadpool(Save)
+
+
+
+

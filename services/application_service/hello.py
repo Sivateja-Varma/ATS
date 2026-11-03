@@ -22,8 +22,13 @@ async def healthCheck():
   return {"service":"application_service","status":"live"}
 
 @app.get("/applications",summary="get all the applications that happened",description="end point provides all the applications ever created")
-async def allApplications(session:SessionDep,job_id:int|None=None):
+async def allApplications(session:SessionDep,job_id:int|None=None,cand_id:int|None=None):
   try:
+    if cand_id is not None:
+       statement=select(Application).where(Application.cand_id==cand_id)
+       specific_db=await run_in_threadpool(session.exec,statement)
+       entry=specific_db.first()
+       return True if entry is not None else False
     if job_id is not None:
           statement=select(Application).where(Application.job_id==job_id).order_by(desc(Application.score))
           specific_db=await run_in_threadpool(session.exec,statement)
@@ -63,36 +68,39 @@ async def oneApplication(session:SessionDep,id:int):
 
 @app.post('/createApplication')
 async def createApplication(session:SessionDep,apply:ApplicationPublic,check:dict=Depends(RoleCheck(['seeker','recruiter','staffing']))):
-  if check.get('role') == 'seeker':
-    id=check.get('id')
-    async with app.state.messageSesh.get('http://localhost:8000/authSeeker',params={"id":id}) as resp:
-        seeker= await resp.json()
-    async with app.state.messageSesh.get('http://localhost:8001/posting',params={"id":apply.job_id}) as resp:
-        job= await resp.json()    
-  else:   
-    async with app.state.messageSesh.get('http://localhost:8000/seeker',params={"id":apply.cand_id}) as resp:
-      seeker= await resp.json() 
-    async with app.state.messageSesh.get('http://localhost:8001/posting',params={"id":apply.job_id}) as resp:
-      job= await resp.json() 
+  try:
+    if check.get('role') == 'seeker':
+      id=check.get('id')
+      async with app.state.messageSesh.get('http://localhost:8000/authSeeker',params={"id":id}) as resp:
+          seeker= await resp.json()
+      async with app.state.messageSesh.get('http://localhost:8001/posting',params={"id":apply.job_id}) as resp:
+          job= await resp.json()    
+    else:   
+      async with app.state.messageSesh.get('http://localhost:8000/seeker',params={"id":apply.cand_id}) as resp:
+        seeker= await resp.json() 
+      async with app.state.messageSesh.get('http://localhost:8001/posting',params={"id":apply.job_id}) as resp:
+        job= await resp.json() 
 
-  if job.get('status') not in ["hold","closed"]:
-      score=0
-      seeker_strengths = {s.lower() for s in seeker.get('strengths', [])}
-      for i in seeker_strengths:
-        if i in job.get('keywords'):
-          score+=1
-      main_application=Application(job_id=job['id'],cand_id=seeker['id'],score=score)
+    if job.get('status') not in ["hold","closed"]:
+        score=0
+        seeker_strengths = {s.lower() for s in seeker.get('strengths', [])}
+        for i in seeker_strengths:
+          if i in job.get('keywords'):
+            score+=1
+        main_application=Application(job_id=job['id'],cand_id=seeker['id'],score=score)
 
-      
-      def save_to_db():
-          session.add(main_application)
-          session.commit()
-          session.refresh(main_application)
-          return main_application
-      saved_application = await run_in_threadpool(save_to_db)
-      return saved_application   
-  else:
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="job not found")
+        
+        def save_to_db():
+            session.add(main_application)
+            session.commit()
+            session.refresh(main_application)
+            return main_application
+        saved_application = await run_in_threadpool(save_to_db)
+        return saved_application   
+    else:
+      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="job not found")
+  except Exception as e:
+     raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail=("you already applied to it"))  
 
 @app.put('/forward')
 async def moveForward(id:int,session:SessionDep):

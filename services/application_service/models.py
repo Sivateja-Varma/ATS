@@ -1,4 +1,4 @@
-from sqlmodel import SQLModel,Field,text,Column,JSON
+from sqlmodel import SQLModel,Field,text,Column,JSON,UniqueConstraint
 from datetime import datetime
 from sqlalchemy import TIMESTAMP
 from enum import Enum
@@ -18,6 +18,9 @@ class ApplicationPublic(SQLModel):
  
 
 class Application(ApplicationPublic,table=True):
+  __table_args__=(
+      UniqueConstraint("cand_id","job_id",name="unq_check"),
+  )
   id : int | None = Field(default=None,primary_key=True)
   score:int  
   status:Status=Field(default=Status.submitted)
