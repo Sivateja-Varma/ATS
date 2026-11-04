@@ -107,12 +107,21 @@ def statusHold(id:int,session:SessionDep,recruiter:str=Depends(RoleCheck(['recru
 
 #also create the custom rounds for each job and change them based on performance of the applicant by the recuiter or staffing comp and also a way for applicants to see their progress where they are and for a recuiter to see the entire history !!! main concern
 
+# when working with moving a candidate forward or rejecting its important that recruiters forward applications not the candidate directly so use application id not cand_id -> this is very dangerous 
+
 @app.put('/forward')
 async def appForward(id:int):
   async with app.state.messageSesh.put('http://127.0.0.1:8002/forward',params={"id":id}) as resp:
     main=await resp.json()
   return main  
-  
 
+
+
+@app.put('/reject')
+async def appReject(id:int):
+  async with app.state.messageSesh.put('http://127.0.0.1:8002/statusRejecter',params={"app_id":id}) as resp:
+      main=await resp.json()
+  return main
+  
 
 #create some kind of job metric public endpoint or an endpoint that a seeker can see just how many applicants have applied for a job, where the applicant can only see the metric count and nothing else

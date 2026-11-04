@@ -176,16 +176,17 @@ async def updateResume(session:SessionDep,resume:UploadFile=File(None),user:dict
 
 # now -> Enterprise platforms almost never use hard deletes for profiles that have application history. Instead, they use a process called Anonymisation (or Pseudonymisation).
 
+#this endpoint shouldnt call the all applications endpoint for the active application check as that endpoint will later be used by candidates to see their active applications and i plan to create a new endpoint in the application service for this check
 @app.delete('/deleteSeeker',summary="delete ur profile",description="endpoint to delete a seeker profile, only if there is no active application")
 async def deleteSeeker(session:SessionDep,user:dict=Depends(RoleCheck(['seeker']))):
   chap=session.exec(select(Seeker).where(Seeker.user_id==user.get('id'))).first()
   if chap is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="user not found")
-  async with app.state.messageSesh.get('http://127.0.0.1:8002/applications',params={"cand_id":chap.id}) as resp:
+  async with app.state.messageSesh.get('http://127.0.0.1:8002/checkBulk',params={"cand_id":chap.id}) as resp:
     application=await resp.json()
   if application:
     raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail="cannot delete profile when a application is active") 
-  async with app.state.messageSesh.put('http://127.0.0.1:8002/statusWithdrawer',params={"cand_id":chap.id}) as resp:
+  async with app.state.messageSesh.put('http://127.0.0.1:8002/statusWithdrawerBulk',params={"cand_id":chap.id}) as resp:
       green=await resp.json()
   async with app.state.messageSesh.delete('http://127.0.0.1:8003/deleteUser',params={'id':chap.user_id}) as resp:
       if resp.status != 200:
@@ -204,6 +205,30 @@ async def deleteSeeker(session:SessionDep,user:dict=Depends(RoleCheck(['seeker']
       return "Resume has been deleted , can now delete your main profile with us."
     await run_in_threadpool(Save)
 
+# single application withdrawal
+@app.put('/withdraw',summary="endpoint to with draw an application",description="withdraw an application based on application id")
+async def appWithdraw(session:SessionDep,app_id:int,user:dict=Depends(RoleCheck(['seeker']))):
+  seeker=session.exec(select(Seeker).where(Seeker.user_id==user.get('id'))).first()
+  if not seeker:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="seeker profile not found,first create a seeker profile with your resume to access this service")
+  async with app.state.messageSesh.get('http://127.0.0.1:8002/application',params={"id":app_id}) as resp:
+    body=await resp.json()
+  if body.get('cand_id') != seeker.id:
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="you are only allowed to with draw your application, not your peers.")
+  async with app.state.messageSesh.put("http://127.0.0.1:8002/statusWithdrawerSingle",params={"id":app_id}) as resp:
+    response_data = await resp.json()
+        
+    if resp.status != 200:
+          
+      error_detail = response_data.get('detail', 'An error occurred during application processing.')
+      raise HTTPException(status_code=resp.status, detail=error_detail)
+            
+    reply = response_data
 
+  return reply  
+
+
+  
+  
 
 

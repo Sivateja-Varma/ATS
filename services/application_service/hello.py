@@ -25,7 +25,7 @@ async def healthCheck():
 async def allApplications(session:SessionDep,job_id:int|None=None,cand_id:int|None=None):
   try:
     if cand_id is not None:
-       statement=select(Application).where(Application.cand_id==cand_id,Application.status.in_(['reviewed','rejected','selected']))
+       statement=select(Application).where(Application.cand_id==cand_id)
        specific_db=await run_in_threadpool(session.exec,statement)
        entry=specific_db.first()
        return True if entry is not None else False
@@ -79,6 +79,15 @@ async def oneApplication(session:SessionDep,id:int):
   return {"id":application.id,"job_id":application.job_id,"cand_id":application.cand_id,"score":application.score,"status":application.status,"applied_at":application.applied_at,"resume_path":resume,"current_round":application.current_round}
   
 
+@app.get("/checkBulk",summary="check endpoint",description="this endpoint checks whether there are any active applications, used for bulk withdraws")
+async def checkBulk(session:SessionDep,cand_id:int):
+   if cand_id is not None:
+     statement=select(Application).where(Application.cand_id==cand_id,Application.status.in_(['reviewed','rejected','selected']))
+     specific_db=await run_in_threadpool(session.exec,statement)
+     entry=specific_db.first()
+     return True if entry is not None else False
+
+
 @app.post('/createApplication')
 async def createApplication(session:SessionDep,apply:ApplicationPublic,check:dict=Depends(RoleCheck(['seeker','recruiter','staffing']))):
   try:
@@ -124,6 +133,8 @@ async def moveForward(id:int,session:SessionDep):
     async with app.state.messageSesh.get('http://127.0.0.1:8001/posting',params={"id":application.job_id}) as resp:
       job=await resp.json()
 
+    # add or throw some kind of error when trying to forward rejected or with drawn applications   
+
     if application.current_round is None and application.status != "rejected":
         application.current_round=0
         application.status=Status.reviewed 
@@ -143,17 +154,40 @@ async def moveForward(id:int,session:SessionDep):
     final_application=await run_in_threadpool(Sync) 
     return final_application
   except Exception as e:
-     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong")    
+     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong")   
+
+# when working with moving a candidate forward or rejecting its important that recruiters forward applications not the candidate directly so use application id not cand_id -> this is very dangerous   
     
 #application status toggler rejection!
-
-#application status toggler withdrawn!
-@app.put('/statusWithdrawer',summary='endpoint to change status',description="change the status to withdrawn")
-def statusWithdraw(session:SessionDep,cand_id:int):
-   application=session.exec(select(Application).where(Application.cand_id==cand_id)).first()
+@app.put('/statusRejecter',summary="endpoint to change status",description="change the status to rejection")
+def statusRejecter(session:SessionDep,app_id:int):
+   application=session.get(Application,app_id)
    if application is None:
-      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Application not Found")
+         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Application not Found")
+   application.status=Status.rejected
+   session.commit()
+   return f"{application.id} has been rejected"
+
+
+# single job application withdrawal
+@app.put('/statusWithdrawerSingle',summary='endpoint to change status',description="change the status to withdrawn")
+def statusWithdrawerSingle(session:SessionDep,id:int):
+   application=session.get(Application,id)
+   if application is None:
+      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="application not found")
+   if application.status in [Status.selected,Status.rejected,Status.reviewed]:
+      raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED,detail="application is in the process it cannot be with drawn now")
    application.status=Status.withdraw
+   session.commit()
+   return "application withdrawn"
+
+#application status toggler withdrawn bulk with draw best for the account deletion workflow!
+@app.put('/statusWithdrawerBulk',summary='endpoint to change status',description="change the status to withdrawn")
+def statusWithdrawBulk(session:SessionDep,cand_id:int):
+   applications=session.exec(select(Application).where(Application.cand_id==cand_id))
+   for application in applications:
+    application.status=Status.withdraw
+    session.add(application)
    session.commit()
    return True
    
