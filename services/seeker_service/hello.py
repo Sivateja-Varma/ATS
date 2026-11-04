@@ -228,6 +228,51 @@ async def appWithdraw(session:SessionDep,app_id:int,user:dict=Depends(RoleCheck(
   return reply  
 
 
+#create some kind of job metric public endpoint or an endpoint that a seeker can see just how many applicants have applied for a job, where the applicant can only see the metric count and nothing else
+
+@app.get('/comptetion',summary="get the job metrics",description="no of applicants that applied to a specific job")
+async def seekerComp(job_id:int):
+  async with app.state.messageSesh.get("http://127.0.0.1:8002/metrics",params={"job_id":job_id}) as resp:
+    num = await resp.json()
+
+  return f"Number of applicants {num}"  
+
+
+#also a way for applicants to see their progress
+@app.get('/progress',summary="endpoint to view progress",description="get progress of where a seeker application in the interview process, based on application_id")
+async def appProgress(session:SessionDep,application_id:int,user:dict=Depends(RoleCheck(['seeker']))):
+  person=session.exec(select(Seeker).where(Seeker.user_id==user.get('id'))).first()
+  if person is None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="user not found, if you don't have a profile with us yet,please create to start using this feature.")
+  async with app.state.messageSesh.get('http://127.0.0.1:8002/application',params={"id":application_id}) as resp:
+     body = await resp.json()
+  if body.get('cand_id') != person.id:
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="you are only allowed to view others applications.")
+  if body.get("status") == "rejected":
+    return "your application has been rejected"
+  if body.get("status") == "selected":
+      return "your application has been selected"
+  if body.get("status") == "withdraw":
+    return "you withdrew your application"
+  
+  async with app.state.messageSesh.get('http://127.0.0.1:8001/posting',params={"id":body.get('job_id')}) as resp:
+    job = await resp.json()
+  rounds=job.get('rounds')
+  curr=body.get('current_round')
+  if curr is None and body.get("status")=="submitted":
+    return "submitted still not yet reviewed"
+  
+  if len(rounds)>curr and body.get('status')=="reviewed":
+    return rounds[curr]
+
+  if curr >= len(rounds):
+        return "all rounds completed, awaiting final decision"
+  
+
+  
+       
+
+
   
   
 

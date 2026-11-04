@@ -2,7 +2,7 @@ from fastapi import FastAPI,HTTPException,status,Depends
 from contextlib import asynccontextmanager
 import aiohttp
 import json
-from sqlmodel import select,desc
+from sqlmodel import select,desc,func
 from .models import Application,ApplicationPublic,Status
 from fastapi.concurrency import run_in_threadpool
 from .db import SessionDep
@@ -27,10 +27,20 @@ async def allApplications(session:SessionDep,job_id:int|None=None,cand_id:int|No
     if cand_id is not None:
        statement=select(Application).where(Application.cand_id==cand_id)
        specific_db=await run_in_threadpool(session.exec,statement)
-       entry=specific_db.first()
-       return True if entry is not None else False
+       entry=specific_db.fetchall()
+       resumes=[]
+       for i in entry:
+        async with app.state.messageSesh.get('http://127.0.0.1:8000/seeker',params={"id":i.cand_id}) as resp:
+          cand = await resp.json()
+          raw_path=cand.get('resume_path')
+          if raw_path is None or str(raw_path).endswith('/None') or raw_path == 'None':
+                    resumes.append("Profile Deleted / Anonymised")
+          else:
+                    resumes.append(raw_path)
+       storage=[{"id":j.id,"job_id":j.job_id,"cand_id":j.cand_id,"score":j.score,"status":j.status,"applied_at":j.applied_at, "current_round": j.current_round,"resume_path":resumes[i]} for i,j in  enumerate(entry)]
+       return storage
     if job_id is not None:
-          statement=select(Application).where(Application.job_id==job_id).order_by(desc(Application.score))
+          statement=select(Application).where(Application.job_id==job_id,Application.status.in_(["submitted","reviewed"])).order_by(desc(Application.score))
           specific_db=await run_in_threadpool(session.exec,statement)
           specific=specific_db.fetchall()
           resumes=[]
@@ -133,7 +143,9 @@ async def moveForward(id:int,session:SessionDep):
     async with app.state.messageSesh.get('http://127.0.0.1:8001/posting',params={"id":application.job_id}) as resp:
       job=await resp.json()
 
-    # add or throw some kind of error when trying to forward rejected or with drawn applications   
+    # add or throw some kind of error when trying to forward rejected or with drawn applications  
+    if application.status == "rejected" or application.status == "withdraw" or application.status == "selected":
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED,detail="cannot forward this particular application forward, once check again.") 
 
     if application.current_round is None and application.status != "rejected":
         application.current_round=0
@@ -190,7 +202,12 @@ def statusWithdrawBulk(session:SessionDep,cand_id:int):
     session.add(application)
    session.commit()
    return True
-   
+
+#metrics for the seeker
+@app.get('/metrics',summary="job metrics",description="to get the total count of applicants that have applied to a specific job")
+def appMetrics(session:SessionDep,job_id:int):
+    count = session.exec(select(func.count(Application.id)).where(Application.job_id==job_id)).one()
+    return count   
 
 
 # # 1. Convert all seeker strengths to lowercase sets

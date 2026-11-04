@@ -124,4 +124,3 @@ async def appReject(id:int):
   return main
   
 
-#create some kind of job metric public endpoint or an endpoint that a seeker can see just how many applicants have applied for a job, where the applicant can only see the metric count and nothing else
