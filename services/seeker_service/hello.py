@@ -15,7 +15,7 @@ from langchain_core.output_parsers import ListOutputParser
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_ollama import OllamaEmbeddings,ChatOllama
-from .models import Seeker,SeekerPublic,SeekerCreation
+from .models import Seeker,SeekerPublic,SeekerCreation,SeekerUpdate
 from .db import SessionDep
 from sqlmodel import select,String,cast
 import os
@@ -55,15 +55,14 @@ def allSeekers(session:SessionDep,search:str|None=None):
   storage=[{"id":seeker.id,"name":seeker.name,"strengths":seeker.strengths,"resume_path":f"{os.getenv("LOCAL_PATH")}{seeker.resume_path}","user_id":seeker.user_id,"email":seeker.email} for seeker in seekers]
   return storage
 
-@app.get('/seeker',summary='endpoint to get one specific registered seeker on the platform',description='specific registered seeker based on id')
+@app.get('/seeker',summary='endpoint to get one specific registered seeker on the platform',description='specific registered seeker based on id',status_code=status.HTTP_200_OK)
 def oneSeeker(session:SessionDep,id:int):
-
   seeker=session.get(Seeker,id)  #does not raise an error if not found
   if seeker is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="user not found")
   full_resume_path = f"{os.getenv('LOCAL_PATH')}{seeker.resume_path}" if seeker.resume_path else None
   return {"id":seeker.id,"name":seeker.name,"strengths":seeker.strengths,"resume_path":F"{full_resume_path}"}
-
+# used by auth to get the seeker id 
 @app.get('/authSeeker',summary='endpoint to get one specific registered seeker on the platform',description='specific registered seeker based on id')
 def authSeeker(session:SessionDep,id:int):
 
@@ -167,7 +166,18 @@ async def updateResume(session:SessionDep,resume:UploadFile=File(None),user:dict
       return person
 
 # update the user details other than resume.
-
+@app.put("/seekerUpdate",summary="endpoint to update the seeker profile",description="update endpoint, but not be used directly as the seeker depends on the auth_service,to maintain consistency.")
+def seekerUpdate(session:SessionDep,id:int,user:SeekerUpdate):
+  try:
+    person=session.get(Seeker,id)
+    if user.email is not None:
+      person.email=user.email
+    if user.name is not None:
+      person.name=user.name
+    session.commit()
+    return True
+  except Exception as e:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong please try again")  
 
 #start top recommended jobs based on the strengths and the key word match of the score to the seekers 
 

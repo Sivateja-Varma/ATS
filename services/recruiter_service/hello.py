@@ -124,3 +124,29 @@ async def appReject(id:int):
   return main
   
 
+# a recuiter to see the entire history
+@app.get("/progress",summary="endpoint to view progress",description="endpoint to get the progress of a candidate for a jobposting",status_code=200)
+async def appProgress(session:SessionDep,app_id:int,user:dict=Depends(RoleCheck(['recruiter','staffing']))):
+  async with app.state.messageSesh.get('http://127.0.0.1:8002/application',params={"id":app_id}) as resp:
+    application=await resp.json()
+    if resp.status!=200:
+      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail=application.get('detail'))
+    
+  if application.get("status") == "rejected":
+      return "application has been rejected"
+  if application.get("status") == "selected":
+        return "application has been selected"
+  if application.get("status") == "withdraw":
+      return "user withdrew his application"
+  job_id=application.get('job_id')
+  curr=application.get('current_round')
+  posting=await run_in_threadpool(session.get,JobPost,job_id) #this must be async compliant , run in threadpool
+  rounds=posting.rounds 
+  if curr is None and application.get("status")=="submitted":
+      return {"available_rounds":rounds,"status":"submitted still not yet reviewed"}
+    
+  if len(rounds)>curr and application.get('status')=="reviewed":
+      return {"available_rounds":rounds,"current_round":rounds[curr]}
+  
+  if curr >= len(rounds):
+          return {"available_rounds":rounds,"status":"all rounds completed, awaiting final decision"}

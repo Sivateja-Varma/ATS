@@ -16,6 +16,9 @@ class SeekerPublic(SQLModel):
   strengths:List[str] = Field(sa_column=Column(JSON))
   resume_path:str|None=Field(default=None)
 
+class SeekerUpdate(SQLModel):
+  name:str
+  email:str
 # class SeekerPublicDisplay(SQLModel):
 #   name:str
 #   strengths:List[str]
