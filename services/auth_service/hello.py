@@ -56,7 +56,7 @@ def userLogin(chap:LoginModel,session:SessionDep):
   token={"id":user.id,"role":user.role,'email':user.email,'name':user.name}
   jwt=tokenizeFunc(token)
   return {"token_type":"BEARER","token":jwt}
-
+# make this more robust and less fault tolerant
 @app.put('/updateUser',summary="update profile",description="account updation workflow starts from here",status_code=status.HTTP_202_ACCEPTED)
 async def updateUser(session:SessionDep,new:UserUpdate,user:dict=Depends(RoleCheck(['seeker','recruiter','staffing']))):
   person = session.get(User,user.get('id'))

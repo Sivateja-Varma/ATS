@@ -1,7 +1,8 @@
-from fastapi import FastAPI,HTTPException,status,Depends
+from fastapi import FastAPI,HTTPException,status,Depends,BackgroundTasks
 from contextlib import asynccontextmanager
 import aiohttp
 import json
+from Shared.mail import send_email
 from sqlmodel import select,desc,func
 from .models import Application,ApplicationPublic,Status
 from fastapi.concurrency import run_in_threadpool
@@ -99,7 +100,7 @@ async def checkBulk(session:SessionDep,cand_id:int):
 
 
 @app.post('/createApplication')
-async def createApplication(session:SessionDep,apply:ApplicationPublic,check:dict=Depends(RoleCheck(['seeker','recruiter','staffing']))):
+async def createApplication(session:SessionDep,apply:ApplicationPublic,background:BackgroundTasks,check:dict=Depends(RoleCheck(['seeker','recruiter','staffing']))):
   try:
     if check.get('role') == 'seeker':
       id=check.get('id')
@@ -128,7 +129,8 @@ async def createApplication(session:SessionDep,apply:ApplicationPublic,check:dic
             session.refresh(main_application)
             return main_application
         saved_application = await run_in_threadpool(save_to_db)
-        return saved_application   
+        background.add_task(send_email,[seeker.get('email')],seeker.get('name'),job.get('role'))
+        return saved_application  
     else:
       raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="job not found")
   except Exception as e:
