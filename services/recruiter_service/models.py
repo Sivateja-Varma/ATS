@@ -1,6 +1,7 @@
 from sqlmodel import SQLModel,Field,JSON,Column
 from typing import List
 from enum import Enum
+from pydantic import field_validator
 
 class Keyword(str,Enum):
   python="python"
@@ -23,6 +24,7 @@ class JobPostPublic(SQLModel):
   keywords:List[str]=Field(sa_column=Column(JSON)) 
   rounds:list[str]=Field(sa_column=Column(JSON))
 
+# a generic first round for every jobposting
  
 
 class JobPost(JobPostPublic,table=True):

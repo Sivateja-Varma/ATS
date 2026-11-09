@@ -21,8 +21,18 @@ conf = ConnectionConfig(
 )
 
 
-async def send_email(email: List[str],name,role) :
-    html = F"""<p>thanks for applying to {role} {name}, our team of recruiters wil see to it that the proceess will be smooth as butter.</p> """
+async def send_email(email: List[str],name:str|None=None,role:str|None=None,status:str|None=None):
+    if status is not None:
+        if status == "submitted":
+                html = F"""<p>thanks for applying to {role} {name}, our team of recruiters wil see to it that the proceess will be smooth as butter.</p> """
+        if status == "selected":
+             html = F"""<p>congragulations {name}, you have been selected.You will be required to come to the office from next week.</p> """
+        if status == "withdraw":
+                     html = F"""<p>{name} your application has been withdrawn successfully.</p> """   
+        if status == "rejected":
+                             html = F"""<p>sorry{name} your application wasn't considered, Please apply again.</p> """
+        if status == "reviewed":
+                            html = F"""<p>you have cleared the last round{name} your application, please prepare for the next round .</p> """                                    
 
     message = MessageSchema(
         subject="Application Successfull",

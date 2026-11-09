@@ -129,7 +129,7 @@ async def createApplication(session:SessionDep,apply:ApplicationPublic,backgroun
             session.refresh(main_application)
             return main_application
         saved_application = await run_in_threadpool(save_to_db)
-        background.add_task(send_email,[seeker.get('email')],seeker.get('name'),job.get('role'))
+        background.add_task(send_email,[seeker.get("email")],seeker.get("name"),job.get("role"),main_application.status.value) # input value is list
         return saved_application  
     else:
       raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="job not found")
@@ -137,13 +137,15 @@ async def createApplication(session:SessionDep,apply:ApplicationPublic,backgroun
      raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail=("you already applied to it"))  
 
 @app.put('/forward')
-async def moveForward(id:int,session:SessionDep):
+async def moveForward(id:int,session:SessionDep,background:BackgroundTasks):
   try:
     application=session.get(Application,id)
     if application is None:
       raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Application not found")
     async with app.state.messageSesh.get('http://127.0.0.1:8001/posting',params={"id":application.job_id}) as resp:
       job=await resp.json()
+    async with app.state.messageSesh.get("http://127.0.0.1:8000/seeker",params={"id":application.cand_id}) as resp:
+        candidate= await resp.json()  
 
     # add or throw some kind of error when trying to forward rejected or with drawn applications  
     if application.status == "rejected" or application.status == "withdraw" or application.status == "selected":
@@ -166,6 +168,7 @@ async def moveForward(id:int,session:SessionDep):
       session.refresh(application)
       return application
     final_application=await run_in_threadpool(Sync) 
+    background.add_task(send_email,[candidate.get("email")],candidate.get("name"),job.get("role"),application.status)
     return final_application
   except Exception as e:
      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong")   
@@ -174,26 +177,42 @@ async def moveForward(id:int,session:SessionDep):
     
 #application status toggler rejection!
 @app.put('/statusRejecter',summary="endpoint to change status",description="change the status to rejection")
-def statusRejecter(session:SessionDep,app_id:int):
-   application=session.get(Application,app_id)
-   if application is None:
-         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Application not Found")
-   application.status=Status.rejected
-   session.commit()
-   return f"{application.id} has been rejected"
+async def statusRejecter(session:SessionDep,app_id:int,background:BackgroundTasks):
+   try:
+    application=session.get(Application,app_id)
+    if application is None:
+          raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Application not Found")
+    async with app.state.messageSesh.get('http://127.0.0.1:8001/posting',params={"id":application.job_id}) as resp:
+          job=await resp.json()
+    async with app.state.messageSesh.get("http://127.0.0.1:8000/seeker",params={"id":application.cand_id}) as resp:
+            candidate= await resp.json()
+    application.status=Status.rejected
+    await run_in_threadpool(session.commit)
+    background.add_task(send_email,[candidate.get("email")],candidate.get("name"),job.get("role"),application.status)
+    return f"{application.id} has been rejected" #also give in which round this profile has been rejected 
+   except Exception as e:
+       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="try again")
 
 
 # single job application withdrawal
 @app.put('/statusWithdrawerSingle',summary='endpoint to change status',description="change the status to withdrawn")
-def statusWithdrawerSingle(session:SessionDep,id:int):
-   application=session.get(Application,id)
-   if application is None:
-      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="application not found")
-   if application.status in [Status.selected,Status.rejected,Status.reviewed]:
-      raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED,detail="application is in the process it cannot be with drawn now")
-   application.status=Status.withdraw
-   session.commit()
-   return "application withdrawn"
+async def statusWithdrawerSingle(session:SessionDep,id:int,background:BackgroundTasks):
+   try:
+    application=session.get(Application,id)
+    if application is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="application not found")
+    if application.status in [Status.selected,Status.rejected,Status.reviewed]:
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED,detail="application is in the process it cannot be with drawn now")
+    async with app.state.messageSesh.get('http://127.0.0.1:8001/posting',params={"id":application.job_id}) as resp:
+              job=await resp.json()
+    async with app.state.messageSesh.get("http://127.0.0.1:8000/seeker",params={"id":application.cand_id}) as resp:
+              candidate= await resp.json()
+    application.status=Status.withdraw
+    await run_in_threadpool(session.commit)
+    background.add_task(send_email,[candidate.get("email")],candidate.get("name"),job.get("role"),application.status)
+    return "application withdrawn"
+   except Exception as e:
+       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="try again.")
 
 #application status toggler withdrawn bulk with draw best for the account deletion workflow!
 @app.put('/statusWithdrawerBulk',summary='endpoint to change status',description="change the status to withdrawn")

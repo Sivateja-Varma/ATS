@@ -4,6 +4,7 @@ from fastapi.concurrency import run_in_threadpool
 from contextlib import asynccontextmanager
 from Shared.finalToken import RoleCheck
 import aiohttp
+import aiofiles
 from pydantic import BaseModel,Field as PydanticField
 from typing import Annotated,List
 from langchain_community.document_loaders import PyPDFLoader
@@ -73,7 +74,7 @@ def authSeeker(session:SessionDep,id:int):
 
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
-
+# make the whole process of just chunking and processing of resume a background task
 @app.post('/registerSeeker',summary='endpoint to create user',description='resume can be added after creation')
 async def createSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict=Depends(RoleCheck(['seeker']))):
   # try:
@@ -103,7 +104,7 @@ async def createSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict
             | template
             | app.state.llm
         )
-    structured_data: ExtractedSkills = chain.invoke("Extract all technical skills, including programming languages, frameworks, libraries, databases, cloud platforms, DevOps tools, and version control systems.")
+    structured_data: ExtractedSkills = chain.invoke("Extract all technical skills, including programming languages, frameworks, libraries, databases, cloud platforms, DevOps tools, and version control systems. But do not include side headings all the things extracted should be individual strings")
     #always look close on the input and prompt every word, do not change anything unless this is done clearly    
     if structured_data and hasattr(structured_data, 'skills'):
         strengths = structured_data.skills
@@ -153,7 +154,7 @@ async def updateResume(session:SessionDep,resume:UploadFile=File(None),user:dict
       | template
       | app.state.llm
       )
-      structured_data: ExtractedSkills = chain.invoke("Extract all technical skills, including programming languages, frameworks, libraries, databases, cloud platforms, DevOps tools, and version control systems and also everything in the technical skills block.")
+      structured_data: ExtractedSkills = chain.invoke("Extract all technical skills, including programming languages, frameworks, libraries, databases, cloud platforms, DevOps tools, and version control systems. But do not include side headings all the things extracted should be individual strings")
       #always look close on the input and prompt every word, do not change anything unless this is done clearly    
       if structured_data and hasattr(structured_data, 'skills'):
         strengths = structured_data.skills
@@ -179,7 +180,7 @@ def seekerUpdate(session:SessionDep,id:int,user:SeekerUpdate):
   except Exception as e:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong please try again")  
 
-#start top recommended jobs based on the strengths and the key word match of the score to the seekers 
+#start top recommended jobs based on the strengths and the key word match of the score to the seekers!!! 
 
 
 #initial plan -> for deletion there should be two way check that is for a seeker to delete there must be no active applications and the seeker should be deleted first and after the user in the main auth service, as if not i should figure out a way to deal with orphan seekers with no user_id which is not my concern as of now ,so two way check it is !

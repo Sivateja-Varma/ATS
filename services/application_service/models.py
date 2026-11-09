@@ -16,6 +16,8 @@ class Status(str,Enum):
 class ApplicationPublic(SQLModel):
   job_id:int
   cand_id:int|None=Field(default=None)
+
+#add new feedback for rejection  
  
 
 class Application(ApplicationPublic,table=True):
