@@ -35,7 +35,7 @@ def oneJobPost(session:SessionDep,id:int):
 @app.post("/createPosting")
 def createPosting(job:JobPostPublic,session:SessionDep,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
   try:
-    opportunity=JobPost(role=job.role,description=job.description,keywords=job.keywords,status=JobStatus.open,rounds=job.rounds)
+    opportunity=JobPost(role=job.role,description=job.description,keywords=job.keywords,status=JobStatus.open,rounds=["Mock Round"]+job.rounds)
     session.add(opportunity)
     session.commit()
     session.refresh(opportunity)
@@ -110,16 +110,16 @@ def statusHold(id:int,session:SessionDep,recruiter:str=Depends(RoleCheck(['recru
 # when working with moving a candidate forward or rejecting its important that recruiters forward applications not the candidate directly so use application id not cand_id -> this is very dangerous 
 
 @app.put('/forward')
-async def appForward(id:int):
-  async with app.state.messageSesh.put('http://127.0.0.1:8002/forward',params={"id":id}) as resp:
+async def appForward(id:int,update:str|None=None):
+  async with app.state.messageSesh.put('http://127.0.0.1:8002/forward',params={"id":id,"update":update}) as resp:
     main=await resp.json()
   return main  
 
 
 
 @app.put('/reject')
-async def appReject(id:int):
-  async with app.state.messageSesh.put('http://127.0.0.1:8002/statusRejecter',params={"app_id":id}) as resp:
+async def appReject(id:int,update:str|None=None):
+  async with app.state.messageSesh.put('http://127.0.0.1:8002/statusRejecter',params={"app_id":id,"update":update}) as resp:
       main=await resp.json()
   return main
   

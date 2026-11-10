@@ -29,5 +29,6 @@ class Application(ApplicationPublic,table=True):
   status:Status=Field(default=Status.submitted)
   applied_at:datetime=Field(sa_type=TIMESTAMP(timezone=True),sa_column_kwargs={"server_default":text("CURRENT_TIMESTAMP")})
   current_round:int | None = Field(default=None)
+  round_feedback:dict|None = Field(default=None,sa_column=Column(JSON))
 
   

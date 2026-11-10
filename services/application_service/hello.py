@@ -4,6 +4,7 @@ import aiohttp
 import json
 from Shared.mail import send_email
 from sqlmodel import select,desc,func
+from sqlalchemy.orm.attributes import flag_modified 
 from .models import Application,ApplicationPublic,Status
 from fastapi.concurrency import run_in_threadpool
 from .db import SessionDep
@@ -38,7 +39,7 @@ async def allApplications(session:SessionDep,job_id:int|None=None,cand_id:int|No
                     resumes.append("Profile Deleted / Anonymised")
           else:
                     resumes.append(raw_path)
-       storage=[{"id":j.id,"job_id":j.job_id,"cand_id":j.cand_id,"score":j.score,"status":j.status,"applied_at":j.applied_at, "current_round": j.current_round,"resume_path":resumes[i]} for i,j in  enumerate(entry)]
+       storage=[{"id":j.id,"job_id":j.job_id,"cand_id":j.cand_id,"score":j.score,"status":j.status,"applied_at":j.applied_at, "current_round": j.current_round,"round_feedback":j.round_feedback,"resume_path":resumes[i]} for i,j in  enumerate(entry)]
        return storage
     if job_id is not None:
           statement=select(Application).where(Application.job_id==job_id,Application.status.in_(["submitted","reviewed"])).order_by(desc(Application.score))
@@ -53,7 +54,7 @@ async def allApplications(session:SessionDep,job_id:int|None=None,cand_id:int|No
                         resumes.append("Profile Deleted / Anonymised")
                else:
                         resumes.append(raw_path)
-          storage=[{"id":j.id,"job_id":j.job_id,"cand_id":j.cand_id,"score":j.score,"status":j.status,"applied_at":j.applied_at, "current_round": j.current_round,"resume_path":resumes[i]} for i,j in enumerate(specific)]
+          storage=[{"id":j.id,"job_id":j.job_id,"cand_id":j.cand_id,"score":j.score,"status":j.status,"applied_at":j.applied_at, "current_round": j.current_round,"round_feedback":j.round_feedback,"resume_path":resumes[i]} for i,j in enumerate(specific)]
           return storage
     statement=select(Application)
     apps_db=await run_in_threadpool(session.exec,statement)
@@ -69,7 +70,7 @@ async def allApplications(session:SessionDep,job_id:int|None=None,cand_id:int|No
                   resumes.append(raw_path)
           
     print(resumes)
-    storage=[{"id":j.id,"job_id":j.job_id,"cand_id":j.cand_id,"score":j.score,"status":j.status,"applied_at":j.applied_at, "current_round": j.current_round,"resume_path":resumes[i]} for i,j in enumerate(apps)]
+    storage=[{"id":j.id,"job_id":j.job_id,"cand_id":j.cand_id,"score":j.score,"status":j.status,"applied_at":j.applied_at, "current_round": j.current_round,"round_feedback":j.round_feedback,"resume_path":resumes[i]} for i,j in enumerate(apps)]
     return storage 
   except Exception as e:
     print(e)
@@ -137,8 +138,8 @@ async def createApplication(session:SessionDep,apply:ApplicationPublic,backgroun
      raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail=("you already applied to it"))  
 
 @app.put('/forward')
-async def moveForward(id:int,session:SessionDep,background:BackgroundTasks):
-  try:
+async def moveForward(id:int,session:SessionDep,background:BackgroundTasks,update:str|None=None):
+  # try:
     application=session.get(Application,id)
     if application is None:
       raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Application not found")
@@ -150,6 +151,8 @@ async def moveForward(id:int,session:SessionDep,background:BackgroundTasks):
     # add or throw some kind of error when trying to forward rejected or with drawn applications  
     if application.status == "rejected" or application.status == "withdraw" or application.status == "selected":
         raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED,detail="cannot forward this particular application forward, once check again.") 
+    if application.round_feedback is None:
+                application.round_feedback={}
 
     if application.current_round is None and application.status != "rejected":
         application.current_round=0
@@ -158,11 +161,14 @@ async def moveForward(id:int,session:SessionDep,background:BackgroundTasks):
     if application.current_round == 0 or application.status not in ['submitted','rejected']: 
         if application.current_round==0:  
             application.current_round+=1
+            application.round_feedback[str(application.current_round)]=update
         elif  application.current_round<len(job.get('rounds',[])):
           application.current_round+=1    
-        else:
-            application.status="selected"    
-    
+          application.round_feedback[str(application.current_round)]=update
+        elif application.current_round==len(job.get('rounds',[])):
+            application.status="selected"   
+            application.round_feedback.update({"selected":update})
+    flag_modified(application, "round_feedback")
     def Sync():
       session.commit()  
       session.refresh(application)
@@ -170,15 +176,15 @@ async def moveForward(id:int,session:SessionDep,background:BackgroundTasks):
     final_application=await run_in_threadpool(Sync) 
     background.add_task(send_email,[candidate.get("email")],candidate.get("name"),job.get("role"),application.status)
     return final_application
-  except Exception as e:
-     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong")   
+  # except Exception as e:
+  #    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong")   
 
 # when working with moving a candidate forward or rejecting its important that recruiters forward applications not the candidate directly so use application id not cand_id -> this is very dangerous   
     
 #application status toggler rejection!
 @app.put('/statusRejecter',summary="endpoint to change status",description="change the status to rejection")
-async def statusRejecter(session:SessionDep,app_id:int,background:BackgroundTasks):
-   try:
+async def statusRejecter(session:SessionDep,app_id:int,background:BackgroundTasks,update:str|None=None):
+  #  try:
     application=session.get(Application,app_id)
     if application is None:
           raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Application not Found")
@@ -187,11 +193,19 @@ async def statusRejecter(session:SessionDep,app_id:int,background:BackgroundTask
     async with app.state.messageSesh.get("http://127.0.0.1:8000/seeker",params={"id":application.cand_id}) as resp:
             candidate= await resp.json()
     application.status=Status.rejected
+    if application.round_feedback is None:
+        application.round_feedback={}
+        application.round_feedback.update({"rejected":update})
+    if application.current_round==len(job.get("rounds")):    
+      application.round_feedback.update({"rejected":update}) 
+    if application.current_round is not None and application.status == "rejected":     
+      application.round_feedback[str(application.current_round)]=update   
+    flag_modified(application,"round_feedback")  
     await run_in_threadpool(session.commit)
     background.add_task(send_email,[candidate.get("email")],candidate.get("name"),job.get("role"),application.status)
     return f"{application.id} has been rejected" #also give in which round this profile has been rejected 
-   except Exception as e:
-       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="try again")
+  #  except Exception as e:
+  #      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="try again")
 
 
 # single job application withdrawal
