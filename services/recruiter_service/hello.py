@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 import aiohttp
 from Shared.finalToken import RoleCheck
 from fastapi.concurrency import run_in_threadpool
-from sqlmodel import select,null
+from sqlmodel import select,null,cast,String
 from .models import JobPostPublic,JobPost,Keyword,JobStatus
 from .db import SessionDep
 
@@ -21,7 +21,12 @@ async  def healthCheck():
   return {"service":"recruiter_service","status":"live"}
 
 @app.get('/postings',summary="get all the postings created",description="all postings created will be displayed")
-def allJobPost(session:SessionDep):
+def allJobPost(session:SessionDep,keyword:str|None=None):
+  #cast is used to cast or convert the keywords stored as json to string and contains work similar to like key word
+  if keyword:
+     postings=session.exec(select(JobPost).where(cast(JobPost.keywords,String).contains(keyword))).fetchall()
+     return postings
+     
   postings=session.exec(select(JobPost)).all()
   return postings
 

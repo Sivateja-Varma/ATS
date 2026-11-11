@@ -181,6 +181,13 @@ def seekerUpdate(session:SessionDep,id:int,user:SeekerUpdate):
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong please try again")  
 
 #start top recommended jobs based on the strengths and the key word match of the score to the seekers!!! 
+#job search based on keywords
+@app.get('/jobSearchKey',status_code=status.HTTP_200_OK)
+async def jobSearch(session:SessionDep,keyword):
+  async with app.state.messageSesh.get('http://127.0.0.1:8001/postings',params={"keyword":keyword}) as resp:
+    response=await resp.json()
+  return response  
+
 
 
 #initial plan -> for deletion there should be two way check that is for a seeker to delete there must be no active applications and the seeker should be deleted first and after the user in the main auth service, as if not i should figure out a way to deal with orphan seekers with no user_id which is not my concern as of now ,so two way check it is !
