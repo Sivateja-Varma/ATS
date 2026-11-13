@@ -155,3 +155,9 @@ async def appProgress(session:SessionDep,app_id:int,user:dict=Depends(RoleCheck(
   
   if curr >= len(rounds):
           return {"available_rounds":rounds,"status":"all rounds completed, awaiting final decision"}
+
+
+
+# ADD client which is company and a company can have multiple roles avaialable company->jobpost parent child relationship. 
+
+#company can have a attribute through which we can serach whether its a new client or old one if its old we can directly send the old client to login screen
