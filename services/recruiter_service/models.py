@@ -1,5 +1,5 @@
-from sqlmodel import SQLModel,Field,JSON,Column
-from typing import List
+from sqlmodel import SQLModel,Field,JSON,Column,Relationship
+from typing import List,Optional
 from enum import Enum
 from pydantic import field_validator
 
@@ -23,6 +23,7 @@ class JobPostPublic(SQLModel):
   description:str = Field(max_length=3000) 
   keywords:List[str]=Field(sa_column=Column(JSON)) 
   rounds:list[str]=Field(sa_column=Column(JSON))
+  client_id:int
 
 # a generic first round for every jobposting
  
@@ -30,7 +31,24 @@ class JobPostPublic(SQLModel):
 class JobPost(JobPostPublic,table=True):
   id : int | None= Field(default=None,primary_key=True)
   status:str | None = Field(default=None)
+  client_id:int | None = Field(default=None,foreign_key="client.client_id")
+  client:Optional["Client"] = Relationship(back_populates="job_postings")
 
 
+class ClientPublic(SQLModel):
+  client_email: str =Field(unique=True,index=True)
+  client_address_1: str|None =Field(default=None,max_length=500)
+  client_address_2: str|None =Field(default=None,max_length=500)
+  client_name:str = Field(min_length=2,index=True)
 
+class ClientHistoryPublic(SQLModel):
+  client_id:int
+  job_postings:List[JobPost]
 
+class Client(SQLModel,table=True):
+  client_id:int|None = Field(default=None,primary_key=True)
+  client_email: str =Field(unique=True,index=True)
+  client_address_1: str|None =Field(default=None,max_length=500)
+  client_address_2: str|None =Field(default=None,max_length=500)
+  client_name:str = Field(min_length=2,index=True)
+  job_postings:List[JobPost] = Relationship(back_populates="client")

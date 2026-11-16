@@ -4,7 +4,7 @@ import aiohttp
 from Shared.finalToken import RoleCheck
 from fastapi.concurrency import run_in_threadpool
 from sqlmodel import select,null,cast,String
-from .models import JobPostPublic,JobPost,Keyword,JobStatus
+from .models import JobPostPublic,JobPost,Keyword,JobStatus,ClientPublic,Client,ClientHistoryPublic
 from .db import SessionDep
 
 @asynccontextmanager
@@ -40,7 +40,7 @@ def oneJobPost(session:SessionDep,id:int):
 @app.post("/createPosting")
 def createPosting(job:JobPostPublic,session:SessionDep,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
   try:
-    opportunity=JobPost(role=job.role,description=job.description,keywords=job.keywords,status=JobStatus.open,rounds=["Mock Round"]+job.rounds)
+    opportunity=JobPost(role=job.role,description=job.description,keywords=job.keywords,status=JobStatus.open,client_id=job.client_id,rounds=["Mock Round"]+job.rounds)
     session.add(opportunity)
     session.commit()
     session.refresh(opportunity)
@@ -159,5 +159,20 @@ async def appProgress(session:SessionDep,app_id:int,user:dict=Depends(RoleCheck(
 
 
 # ADD client which is company and a company can have multiple roles avaialable company->jobpost parent child relationship. 
+@app.get('/clientHistory',status_code=status.HTTP_200_OK,response_model=ClientHistoryPublic,summary="get client history",description="this includes all the jobs posted by this particular company through our ats portal")
+def clientHistory(session:SessionDep,id:int):
+   client_history=session.get(Client,id)
+   return client_history
+
+
+@app.post("/addClient",status_code=status.HTTP_201_CREATED,summary="client onboarding",description="Endpoint to onboard a client entity")
+async def addClient(session:SessionDep,patner:ClientPublic):
+   new = Client(client_email=patner.client_email,client_name=patner.client_name,client_address_1=patner.client_address_1,client_address_2=patner.client_address_2)
+   session.add(new)
+   session.commit()
+   session.refresh(new)
+   return new
+
+
 
 #company can have a attribute through which we can serach whether its a new client or old one if its old we can directly send the old client to login screen
