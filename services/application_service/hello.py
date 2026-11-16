@@ -1,6 +1,7 @@
 from fastapi import FastAPI,HTTPException,status,Depends,BackgroundTasks
 from contextlib import asynccontextmanager
 import aiohttp
+from rapidfuzz import fuzz
 import json
 from Shared.mail import send_email
 from sqlmodel import select,desc,func
@@ -99,6 +100,14 @@ async def checkBulk(session:SessionDep,cand_id:int):
      entry=specific_db.first()
      return True if entry is not None else False
 
+def is_match_helper(seeker_strength:str,keyword:str,threshold:int=85):
+    if seeker_strength == keyword:
+        return True
+    if min(len(seeker_strength),len(keyword))<4:
+        return False
+
+    return fuzz.ratio(seeker_strength,keyword)>threshold 
+
 
 @app.post('/createApplication')
 async def createApplication(session:SessionDep,apply:ApplicationPublic,background:BackgroundTasks,check:dict=Depends(RoleCheck(['seeker','recruiter','staffing']))):
@@ -118,8 +127,9 @@ async def createApplication(session:SessionDep,apply:ApplicationPublic,backgroun
     if job.get('status') not in ["hold","closed"]:
         score=0
         seeker_strengths = {s.lower() for s in seeker.get('strengths', [])}
-        for i in seeker_strengths:
-          if i in job.get('keywords'):
+        job_keywords=job.get('keywords',[],)
+        for i in job_keywords:
+          if any(is_match_helper(seeker_strength=strength,keyword=i,threshold=80) for strength in seeker_strengths):
             score+=1
         main_application=Application(job_id=job['id'],cand_id=seeker['id'],score=score)
 
