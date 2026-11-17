@@ -1,6 +1,9 @@
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from pydantic import EmailStr, BaseModel
 from typing_extensions import TypedDict,List
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
 
 class EmailSchema(BaseModel):
@@ -9,7 +12,7 @@ class EmailSchema(BaseModel):
 
 conf = ConnectionConfig(
     MAIL_USERNAME = "jampanasivatejavarma@gmail.com",
-    MAIL_PASSWORD = "eome jofa fhoa cnly",
+    MAIL_PASSWORD = os.getenv('mail_pass'),
     MAIL_FROM = "jampanasivatejavarma@gmail.com",
     MAIL_PORT = 587,
     MAIL_SERVER = "smtp.gmail.com",

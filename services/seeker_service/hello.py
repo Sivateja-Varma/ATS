@@ -1,4 +1,4 @@
-from fastapi import FastAPI,status,HTTPException,Form,UploadFile,File,Depends
+from fastapi import FastAPI,status,HTTPException,Form,UploadFile,File,Depends,BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.concurrency import run_in_threadpool
 from contextlib import asynccontextmanager
@@ -17,7 +17,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_ollama import OllamaEmbeddings,ChatOllama
 from .models import Seeker,SeekerPublic,SeekerCreation,SeekerUpdate
-from .db import SessionDep
+from .db import SessionDep,Session,engine
 from sqlmodel import select,String,cast
 import os
 from dotenv import load_dotenv
@@ -53,7 +53,7 @@ def allSeekers(session:SessionDep,search:str|None=None):
         ).fetchall()
      return seekers 
   seekers=session.exec(select(Seeker)).all()
-  storage=[{"id":seeker.id,"name":seeker.name,"strengths":seeker.strengths,"resume_path":f"{os.getenv("LOCAL_PATH")}{seeker.resume_path}","user_id":seeker.user_id,"email":seeker.email} for seeker in seekers]
+  storage=[{"id":seeker.id,"name":seeker.name,"strengths":seeker.strengths,"resume_path":f"{os.getenv("LOCAL_PATH")}{seeker.resume_path}","user_id":seeker.user_id,"email":seeker.email,"resume_processing_status":seeker.resume_processing_status} for seeker in seekers]
   return storage
 
 @app.get('/seeker',summary='endpoint to get one specific registered seeker on the platform',description='specific registered seeker based on id',status_code=status.HTTP_200_OK)
@@ -62,7 +62,7 @@ def oneSeeker(session:SessionDep,id:int):
   if seeker is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="user not found")
   full_resume_path = f"{os.getenv('LOCAL_PATH')}{seeker.resume_path}" if seeker.resume_path else None
-  return {"id":seeker.id,"name":seeker.name,"strengths":seeker.strengths,"resume_path":F"{full_resume_path}","email":seeker.email}
+  return {"id":seeker.id,"name":seeker.name,"strengths":seeker.strengths,"resume_path":F"{full_resume_path}","email":seeker.email,"resume_processing_status":seeker.resume_processing_status}
 # used by auth to get the seeker id 
 @app.get('/authSeeker',summary='endpoint to get one specific registered seeker on the platform',description='specific registered seeker based on id')
 def authSeeker(session:SessionDep,id:int):
@@ -72,19 +72,8 @@ def authSeeker(session:SessionDep,id:int):
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="user not found")
   return {"id":seeker.id,"name":seeker.name,"strengths":seeker.strengths,"resume_path":f"{os.getenv("LOCAL_PATH")}{seeker.resume_path}","email":seeker.email}
 
-def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
-# make the whole process of just chunking and processing of resume a background task
-@app.post('/registerSeeker',summary='endpoint to create user',description='resume can be added after creation')
-async def createSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict=Depends(RoleCheck(['seeker']))):
-  # try:
-  path = None
-  strengths = []
-  structured_data = None
-  if resume:
-    path=F"Resumes/{resume.filename}"
-    with open(path,'wb') as f:
-      f.write(await resume.read())
+def workPipeline(path,id):
+  try:
     loader=PyPDFLoader(path)
     docs=loader.load()
     splitter=RecursiveCharacterTextSplitter(chunk_size=300,chunk_overlap=30)
@@ -105,9 +94,44 @@ async def createSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict
             | app.state.llm
         )
     structured_data: ExtractedSkills = chain.invoke("Extract all technical skills, including programming languages, frameworks, libraries, databases, cloud platforms, DevOps tools, and version control systems. But do not include side headings all the things extracted should be individual strings")
-    #always look close on the input and prompt every word, do not change anything unless this is done clearly    
+
     if structured_data and hasattr(structured_data, 'skills'):
-        strengths = structured_data.skills
+            strengths = structured_data.skills 
+            with Session(engine) as session:
+                seeker=session.get(Seeker,id)    
+                if seeker:
+                  seeker.strengths=strengths 
+                  seeker.resume_processing_status="completed"  
+                session.commit()
+                session.refresh(seeker)
+  except Exception as e:
+    with Session(engine) as session:
+                    seeker=session.get(Seeker,id)    
+                    if seeker:
+                      seeker.resume_processing_status="failed"  
+                    session.commit()
+                    session.refresh(seeker)             
+       
+
+
+
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+# make the whole process of just chunking and processing of resume a background task
+@app.post('/registerSeeker',summary='endpoint to create user',description='resume can be added after creation')
+async def createSeeker(session:SessionDep,back:BackgroundTasks,resume:UploadFile=File(None),user:dict=Depends(RoleCheck(['seeker']))):
+  # try:
+  path = None
+  strengths = []
+  structured_data = None
+  if resume:
+    path=F"Resumes/{resume.filename}"
+    with open(path,'wb') as f:
+      f.write(await resume.read())
+    
+    #always look close on the input and prompt every word, do not change anything unless this is done clearly    
+    # if structured_data and hasattr(structured_data, 'skills'):
+    #     strengths = structured_data.skills
 
   seeker=Seeker(name=user.get('name'),email=user.get('email'),user_id=user.get('id'),strengths=strengths,resume_path=path) 
   def Save():
@@ -115,6 +139,10 @@ async def createSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict
     session.commit()
     session.refresh(seeker)
   await run_in_threadpool(Save)  
+  if resume:
+      back.add_task(workPipeline,path,seeker.id)
+
+
   return seeker 
   # except:
   #   raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong try again")
@@ -122,48 +150,29 @@ async def createSeeker(session:SessionDep,resume:UploadFile=File(None),user:dict
   # start the update for the resume and the workflow should be copied or not and also as of now the latest resume is given everything else is out of scope 
 
 @app.put('/updateResume',summary="endpoint to update the resume",description="update the current resume with the latest one")
-async def updateResume(session:SessionDep,resume:UploadFile=File(None),user:dict=Depends(RoleCheck(['seeker']))):
+async def updateResume(session:SessionDep,back:BackgroundTasks,resume:UploadFile=File(None),user:dict=Depends(RoleCheck(['seeker']))):
   person = session.exec(select(Seeker).where(Seeker.user_id==user.get('id'))).first()
   if person is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="User not found")
-  if resume is not None:
-    if os.path.exists(person.resume_path):
+  if resume is None:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="upload resume ...")
+  if person.resume_path and os.path.exists(person.resume_path):
       os.remove(person.resume_path)
-      path = None
-      strengths = []
-      structured_data = None
-      path=F"Resumes/{resume.filename}"
-      with open(path,'wb') as f:
-        f.write(await resume.read())
-      loader=PyPDFLoader(path)
-      docs=loader.load()
-      splitter=RecursiveCharacterTextSplitter(chunk_size=300,chunk_overlap=30)
-      splits=splitter.split_documents(docs)
-      embedding=OllamaEmbeddings(model='mxbai-embed-large:latest')
-
-      db=FAISS.from_documents(splits,embedding)
-      print('i am here')
-      ret=db.as_retriever(k=10)
-      template=ChatPromptTemplate.from_messages(
-      [('system','do not hallucinate and only use the {context} as ur sole knowledge base and the main task is to parse the given documents and extract technical keywords from the resume docs example list ["java","python","javascript"], even if u find anything remotely similar to these words for example reactjs is react and react is reactjs capital or small letter doesnt matter but the final words parsed should all be small and also look for sections like "Technical Skills" or "Tech Stack" which already has all the skills listed'),
-      ("user","{input}")]
-      )
-      print('i am here2')
-      chain = (
-      {"context": ret | format_docs, "input": RunnablePassthrough()}
-      | template
-      | app.state.llm
-      )
-      structured_data: ExtractedSkills = chain.invoke("Extract all technical skills, including programming languages, frameworks, libraries, databases, cloud platforms, DevOps tools, and version control systems. But do not include side headings all the things extracted should be individual strings")
-      #always look close on the input and prompt every word, do not change anything unless this is done clearly    
-      if structured_data and hasattr(structured_data, 'skills'):
-        strengths = structured_data.skills
-      person.resume_path=path
-      person.strengths=strengths
+  path = None
+  strengths = []
+  structured_data = None
+  path=F"Resumes/{resume.filename}"
+  person.resume_processing_status="processing"
+  person.strengths=strengths
+  person.resume_path=path
+  with open(path,'wb') as f:
+      f.write(await resume.read())
+      
       def Save():
           session.commit()
           session.refresh(person)
       await run_in_threadpool(Save)  
+      back.add_task(workPipeline,path,person.id)
       return person
 
 # update the user details other than resume.

@@ -57,32 +57,34 @@ def userLogin(chap:LoginModel,session:SessionDep):
   jwt=tokenizeFunc(token)
   return {"token_type":"BEARER","token":jwt}
 # make this more robust and less fault tolerant
-@app.put('/updateUser',summary="update profile",description="account updation workflow starts from here",status_code=status.HTTP_202_ACCEPTED)
+#add the update without ever creating seeker if seeker not found update here directlty
+@app.put('/updateUser',summary="update profile",description="account updation workflow starts from here",status_code=status.HTTP_202_ACCEPTED,response_model=UserPublic)
 async def updateUser(session:SessionDep,new:UserUpdate,user:dict=Depends(RoleCheck(['seeker','recruiter','staffing']))):
   person = session.get(User,user.get('id'))
   if new.email is not None:
     person.email=new.email
   if new.name is not None:  
     person.name=new.name
+  def Save():
+        session.commit()
+        session.refresh(person)  
+        return person
+  await run_in_threadpool(Save) 
+  if user.get('role') not in ["recruiter","staffing"]: 
 
-  async with app.state.messageSesh.get("http://127.0.0.1:8000/authSeeker",params={"id":person.id}) as resp:
-    fact = await resp.json()
-    if resp.status!=200:
-      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=fact.get('detail'))
-  body={"name":new.name,"email":new.email}  
-  async with app.state.messageSesh.put("http://127.0.0.1:8000/seekerUpdate",params={"id":fact.get('id')},json=body) as resp:
+    async with app.state.messageSesh.get("http://127.0.0.1:8000/authSeeker",params={"id":person.id}) as resp:
+      fact = await resp.json()
+      if resp.status!=200:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=fact.get('detail'))
+    body={"name":new.name,"email":new.email}  
+    async with app.state.messageSesh.put("http://127.0.0.1:8000/seekerUpdate",params={"id":fact.get('id')},json=body) as resp:
 
-    final = await resp.json()  
-    if resp.status != 200 :
-      raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail=final.get('detail'))
-  if final:  
-    def Save():
-      session.commit()
-      session.refresh(person)  
-      return person
-    await run_in_threadpool(Save)
-  else:
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong")  
+      final = await resp.json()  
+      if resp.status != 200 :
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail=final.get('detail')) 
+  return person     
+  # else:
+  #   raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong")  
 
 
 #delete endpoint
