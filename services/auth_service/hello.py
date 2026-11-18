@@ -1,5 +1,5 @@
 from fastapi import FastAPI,status,HTTPException,Depends
-from .models import User,UserPublic,RegUSer,UserReq,LoginModel,UserUpdate
+from .models import User,UserPublic,RegUSer,UserReq,LoginModel,UserUpdate,FixedReq,Roles
 from fastapi.concurrency import run_in_threadpool
 from .db import SessionDep
 from contextlib import asynccontextmanager
@@ -29,13 +29,13 @@ def allUsers(session:SessionDep):
   return users
 
 @app.post('/register',summary="endpoint to register user",description="A consolidated user endpoint creator function, all the workflow starts from here when it comes to user",response_model=UserPublic)
-def userRegister(chap:RegUSer,session:SessionDep):
+def userRegister(chap:FixedReq,session:SessionDep):
   try:
     user = User(
       email=chap.email,
       name=chap.name,
       user_pass=hashingFunc(chap.user_pass),
-      role=chap.role
+      role=Roles.seeker
     )
 
     session.add(user)
@@ -68,20 +68,22 @@ async def updateUser(session:SessionDep,new:UserUpdate,user:dict=Depends(RoleChe
   def Save():
         session.commit()
         session.refresh(person)  
-        return person
   await run_in_threadpool(Save) 
   if user.get('role') not in ["recruiter","staffing"]: 
 
     async with app.state.messageSesh.get("http://127.0.0.1:8000/authSeeker",params={"id":person.id}) as resp:
-      fact = await resp.json()
-      if resp.status!=200:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=fact.get('detail'))
-    body={"name":new.name,"email":new.email}  
-    async with app.state.messageSesh.put("http://127.0.0.1:8000/seekerUpdate",params={"id":fact.get('id')},json=body) as resp:
+      
+      if resp.status==200:
+        fact = await resp.json()
+        body={"name":new.name,"email":new.email}  
+        async with app.state.messageSesh.put("http://127.0.0.1:8000/seekerUpdate",params={"id":fact.get('id')},json=body) as resp:
 
-      final = await resp.json()  
-      if resp.status != 200 :
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail=final.get('detail')) 
+          final = await resp.json()  
+          if resp.status != 200 :
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail=final.get('detail')) 
+      # elif resp.status==404:  
+      #   fact = await resp.json() 
+      #   raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=fact.get('detail')) 
   return person     
   # else:
   #   raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong")  
@@ -102,3 +104,19 @@ def deleteUser(session:SessionDep,id:int):
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="something went wrong try again")
 
 
+# code a seperate recuiter endpoint and a public seeker endpoint , for security reasons , current implementation is faulty by design leaving a lot of gaps leading to security issues.
+@app.post('/registerRecruiter',summary="endpoint for recruit registration",description="new recruit is added , and can only be done by a already pre-existing recruit",response_model=UserPublic)
+def registerRecruiter(chap:FixedReq,session:SessionDep,user=Depends(RoleCheck(['staffing']))):
+  try:
+    user = User(
+          email=chap.email,
+          name=chap.name,
+          user_pass=hashingFunc(chap.user_pass),
+          role=Roles.recruiter
+        )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+  except Exception as e:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="try again...")

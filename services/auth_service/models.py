@@ -14,6 +14,11 @@ class UserReq(SQLModel):
   user_pass:str
   role:str
 
+class FixedReq(SQLModel):
+  email:str
+  name:str
+  user_pass:str
+    
 class UserUpdate(SQLModel):
   name:str|None = Field(default=None,min_length=1)
   email:str|None = Field(default=None,min_length=1)  
