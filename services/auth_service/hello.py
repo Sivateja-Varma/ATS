@@ -1,4 +1,4 @@
-from fastapi import FastAPI,status,HTTPException,Depends
+from fastapi import FastAPI,status,HTTPException,Depends,Request
 from .models import User,UserPublic,RegUSer,UserReq,LoginModel,UserUpdate,FixedReq,Roles
 from fastapi.concurrency import run_in_threadpool
 from .db import SessionDep
@@ -59,7 +59,9 @@ def userLogin(chap:LoginModel,session:SessionDep):
 # make this more robust and less fault tolerant
 #add the update without ever creating seeker if seeker not found update here directlty
 @app.put('/updateUser',summary="update profile",description="account updation workflow starts from here",status_code=status.HTTP_202_ACCEPTED,response_model=UserPublic)
-async def updateUser(session:SessionDep,new:UserUpdate,user:dict=Depends(RoleCheck(['seeker','recruiter','staffing']))):
+async def updateUser(request:Request,session:SessionDep,new:UserUpdate,user:dict=Depends(RoleCheck(['seeker','recruiter','staffing']))):
+  auth_token=request.headers.get("Authorization")
+  internal_headers={"Authorization":auth_token} if auth_token else {}
   person = session.get(User,user.get('id'))
   if new.email is not None:
     person.email=new.email
@@ -71,7 +73,7 @@ async def updateUser(session:SessionDep,new:UserUpdate,user:dict=Depends(RoleChe
   await run_in_threadpool(Save) 
   if user.get('role') not in ["recruiter","staffing"]: 
 
-    async with app.state.messageSesh.get("http://127.0.0.1:8000/authSeeker",params={"id":person.id}) as resp:
+    async with app.state.messageSesh.get("http://127.0.0.1:8000/authSeeker",params={"id":person.id},headers=internal_headers) as resp:
       
       if resp.status==200:
         fact = await resp.json()
@@ -92,7 +94,7 @@ async def updateUser(session:SessionDep,new:UserUpdate,user:dict=Depends(RoleChe
 #delete endpoint
 
 @app.delete('/deleteUser',summary='delete profile',description="account deletion endpoints, all our services are suspended",status_code=status.HTTP_200_OK)
-def deleteUser(session:SessionDep,id:int):
+def deleteUser(session:SessionDep,id:int,user:dict=Depends(RoleCheck(["seeker","recruiter","staffing"]))):
   try: 
     chap=session.get(User,id)
     if not chap:
