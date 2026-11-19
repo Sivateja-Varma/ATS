@@ -1,4 +1,4 @@
-from fastapi import FastAPI,status,HTTPException,status,Depends
+from fastapi import FastAPI,status,HTTPException,status,Depends,Request
 from contextlib import asynccontextmanager
 import aiohttp
 from Shared.finalToken import RoleCheck
@@ -50,8 +50,10 @@ def createPosting(job:JobPostPublic,session:SessionDep,recruiter:str=Depends(Rol
 
 
 @app.post("/applied")
-async def jobMetrics(id:int,session:SessionDep,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
-  async with app.state.messageSesh.get('http://127.0.0.1:8002/applications',params={'job_id':id}) as resp:
+async def jobMetrics(request:Request,id:int,session:SessionDep,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
+  auth_token=request.headers.get("Authorization")
+  internal_headers={"Authorization":auth_token} if auth_token else {}
+  async with app.state.messageSesh.get('http://127.0.0.1:8002/applications',params={'job_id':id},headers=internal_headers) as resp:
     collection=await resp.json()
     return collection  
 
@@ -69,8 +71,10 @@ async def searchCandidate(search:str,recruiter:str=Depends(RoleCheck(['recruiter
 
 
 @app.post('/recruit')
-async def recruitCandidate(id:int,job:int,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
-  async with app.state.messageSesh.post('http://127.0.0.1:8002/createApplication',json={"job_id":job,"cand_id":id}) as resp:
+async def recruitCandidate(request:Request,id:int,job:int,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
+  auth_token=request.headers.get("Authorization")
+  internal_headers={"Authorization":auth_token} if auth_token else {}
+  async with app.state.messageSesh.post('http://127.0.0.1:8002/createApplication',json={"job_id":job,"cand_id":id},headers=internal_headers) as resp:
     candidate=await resp.json()
     return candidate
 
@@ -115,16 +119,20 @@ def statusHold(id:int,session:SessionDep,recruiter:str=Depends(RoleCheck(['recru
 # when working with moving a candidate forward or rejecting its important that recruiters forward applications not the candidate directly so use application id not cand_id -> this is very dangerous 
 
 @app.put('/forward')
-async def appForward(id:int,update:str|None=None):
-  async with app.state.messageSesh.put('http://127.0.0.1:8002/forward',params={"id":id,"update":update}) as resp:
+async def appForward(request:Request,id:int,update:str|None=None,user:dict=Depends(RoleCheck(['staffing','recruiter']))):
+  auth_token=request.headers.get("Authorization")
+  internal_headers={"Authorization":auth_token} if auth_token else {}
+  async with app.state.messageSesh.put('http://127.0.0.1:8002/forward',params={"id":id,"update":update},headers=internal_headers) as resp:
     main=await resp.json()
   return main  
 
 
 
 @app.put('/reject')
-async def appReject(id:int,update:str|None=None):
-  async with app.state.messageSesh.put('http://127.0.0.1:8002/statusRejecter',params={"app_id":id,"update":update}) as resp:
+async def appReject(request:Request,id:int,update:str|None=None,user:dict=Depends(RoleCheck(['staffing','recruiter']))):
+  auth_token=request.headers.get("Authorization")
+  internal_headers={"Authorization":auth_token} if auth_token else {}
+  async with app.state.messageSesh.put('http://127.0.0.1:8002/statusRejecter',params={"app_id":id,"update":update},headers=internal_headers) as resp:
       main=await resp.json()
   return main
   
@@ -160,19 +168,15 @@ async def appProgress(session:SessionDep,app_id:int,user:dict=Depends(RoleCheck(
 
 # ADD client which is company and a company can have multiple roles avaialable company->jobpost parent child relationship. 
 @app.get('/clientHistory',status_code=status.HTTP_200_OK,response_model=ClientHistoryPublic,summary="get client history",description="this includes all the jobs posted by this particular company through our ats portal")
-def clientHistory(session:SessionDep,id:int):
+def clientHistory(session:SessionDep,id:int,user:dict=Depends(RoleCheck(['staffing','recruiter']))):
    client_history=session.get(Client,id)
    return client_history
 
 
 @app.post("/addClient",status_code=status.HTTP_201_CREATED,summary="client onboarding",description="Endpoint to onboard a client entity")
-async def addClient(session:SessionDep,patner:ClientPublic):
+async def addClient(session:SessionDep,patner:ClientPublic,user:dict=Depends(RoleCheck(['staffing','recruiter']))):
    new = Client(client_email=patner.client_email,client_name=patner.client_name,client_address_1=patner.client_address_1,client_address_2=patner.client_address_2)
    session.add(new)
    session.commit()
    session.refresh(new)
    return new
-
-
-
-#company can have a attribute through which we can serach whether its a new client or old one if its old we can directly send the old client to login screen

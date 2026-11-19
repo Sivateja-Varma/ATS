@@ -25,7 +25,7 @@ async def healthCheck():
   return {"service":"application_service","status":"live"}
 
 @app.get("/applications",summary="get all the applications that happened",description="end point provides all the applications ever created")
-async def allApplications(session:SessionDep,job_id:int|None=None,cand_id:int|None=None):
+async def allApplications(session:SessionDep,job_id:int|None=None,cand_id:int|None=None,user:dict=Depends(RoleCheck(['staffing','recruiter']))):
   try:
     if cand_id is not None:
        statement=select(Application).where(Application.cand_id==cand_id)
@@ -89,13 +89,13 @@ async def oneApplication(session:SessionDep,id:int):
             resume="Profile Deleted / Anonymised"
      else:
             resume=raw_path
-  return {"id":application.id,"job_id":application.job_id,"cand_id":application.cand_id,"score":application.score,"status":application.status,"applied_at":application.applied_at,"resume_path":resume,"current_round":application.current_round}
+  return {"id":application.id,"job_id":application.job_id,"cand_id":application.cand_id,"score":application.score,"status":application.status,"applied_at":application.applied_at,"resume_path":resume,"current_round":application.current_round,"round_feedback":application.round_feedback}
   
 
 @app.get("/checkBulk",summary="check endpoint",description="this endpoint checks whether there are any active applications, used for bulk withdraws")
-async def checkBulk(session:SessionDep,cand_id:int):
+async def checkBulk(session:SessionDep,cand_id:int,user:dict=Depends(RoleCheck(['seeker']))):
    if cand_id is not None:
-     statement=select(Application).where(Application.cand_id==cand_id,Application.status.in_(['reviewed','rejected','selected']))
+     statement=select(Application).where(Application.cand_id==cand_id,Application.status.in_(['reviewed','selected']))
      specific_db=await run_in_threadpool(session.exec,statement)
      entry=specific_db.first()
      return True if entry is not None else False
@@ -148,7 +148,7 @@ async def createApplication(session:SessionDep,apply:ApplicationPublic,backgroun
      raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail=("you already applied to it"))  
 
 @app.put('/forward')
-async def moveForward(id:int,session:SessionDep,background:BackgroundTasks,update:str|None=None):
+async def moveForward(id:int,session:SessionDep,background:BackgroundTasks,update:str|None=None,user:dict=Depends(RoleCheck(["recruiter","staffing"]))):
   # try:
     application=session.get(Application,id)
     if application is None:
@@ -193,7 +193,7 @@ async def moveForward(id:int,session:SessionDep,background:BackgroundTasks,updat
     
 #application status toggler rejection!
 @app.put('/statusRejecter',summary="endpoint to change status",description="change the status to rejection")
-async def statusRejecter(session:SessionDep,app_id:int,background:BackgroundTasks,update:str|None=None):
+async def statusRejecter(session:SessionDep,app_id:int,background:BackgroundTasks,update:str|None=None,user:dict=Depends(RoleCheck(["recruiter","staffing"]))):
   #  try:
     application=session.get(Application,app_id)
     if application is None:
@@ -208,7 +208,8 @@ async def statusRejecter(session:SessionDep,app_id:int,background:BackgroundTask
         application.round_feedback.update({"rejected":update})
     if application.current_round==len(job.get("rounds")):    
       application.round_feedback.update({"rejected":update}) 
-    if application.current_round is not None and application.status == "rejected":     
+    if application.current_round is not None and application.status == "rejected": 
+      application.current_round+=1    
       application.round_feedback[str(application.current_round)]=update   
     flag_modified(application,"round_feedback")  
     await run_in_threadpool(session.commit)
@@ -220,7 +221,7 @@ async def statusRejecter(session:SessionDep,app_id:int,background:BackgroundTask
 
 # single job application withdrawal
 @app.put('/statusWithdrawerSingle',summary='endpoint to change status',description="change the status to withdrawn")
-async def statusWithdrawerSingle(session:SessionDep,id:int,background:BackgroundTasks):
+async def statusWithdrawerSingle(session:SessionDep,id:int,background:BackgroundTasks,user:dict=Depends(RoleCheck(["seeker"]))):
    try:
     application=session.get(Application,id)
     if application is None:
@@ -240,7 +241,7 @@ async def statusWithdrawerSingle(session:SessionDep,id:int,background:Background
 
 #application status toggler withdrawn bulk with draw best for the account deletion workflow!
 @app.put('/statusWithdrawerBulk',summary='endpoint to change status',description="change the status to withdrawn")
-def statusWithdrawBulk(session:SessionDep,cand_id:int):
+def statusWithdrawBulk(session:SessionDep,cand_id:int,user:dict=Depends(RoleCheck(["seeker"]))):
    applications=session.exec(select(Application).where(Application.cand_id==cand_id))
    for application in applications:
     application.status=Status.withdraw
@@ -250,7 +251,7 @@ def statusWithdrawBulk(session:SessionDep,cand_id:int):
 
 #metrics for the seeker
 @app.get('/metrics',summary="job metrics",description="to get the total count of applicants that have applied to a specific job")
-def appMetrics(session:SessionDep,job_id:int):
+def appMetrics(session:SessionDep,job_id:int,user:dict=Depends(RoleCheck(['seeker']))):
     count = session.exec(select(func.count(Application.id)).where(Application.job_id==job_id)).one()
     return count   
 

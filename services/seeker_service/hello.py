@@ -1,4 +1,4 @@
-from fastapi import FastAPI,status,HTTPException,Form,UploadFile,File,Depends,BackgroundTasks
+from fastapi import FastAPI,status,HTTPException,Form,UploadFile,File,Depends,BackgroundTasks,Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.concurrency import run_in_threadpool
 from contextlib import asynccontextmanager
@@ -177,7 +177,7 @@ async def updateResume(session:SessionDep,back:BackgroundTasks,resume:UploadFile
 
 # update the user details other than resume.
 @app.put("/seekerUpdate",summary="endpoint to update the seeker profile",description="update endpoint, but not be used directly as the seeker depends on the auth_service,to maintain consistency.")
-def seekerUpdate(session:SessionDep,id:int,user:SeekerUpdate):
+def seekerUpdate(session:SessionDep,id:int,user:SeekerUpdate,man:dict=Depends(RoleCheck(["seeker"]))):
   try:
     person=session.get(Seeker,id)
     if user.email is not None:
@@ -204,37 +204,51 @@ async def jobSearch(session:SessionDep,keyword):
 # now -> Enterprise platforms almost never use hard deletes for profiles that have application history. Instead, they use a process called Anonymisation (or Pseudonymisation).
 
 #this endpoint shouldnt call the all applications endpoint for the active application check as that endpoint will later be used by candidates to see their active applications and i plan to create a new endpoint in the application service for this check
+#DISTRIBUTED TRANSACTION!!! -> local roll backs cannot undo the changes in another service where the chnages have already been committed , Solution -> order of operations
 @app.delete('/deleteSeeker',summary="delete ur profile",description="endpoint to delete a seeker profile, only if there is no active application")
-async def deleteSeeker(session:SessionDep,user:dict=Depends(RoleCheck(['seeker']))):
+async def deleteSeeker(request:Request,session:SessionDep,user:dict=Depends(RoleCheck(['seeker']))):
+  auth_token=request.headers.get("Authorization")
+  internal_headers={"Authorization":auth_token} if auth_token else {}
   chap=session.exec(select(Seeker).where(Seeker.user_id==user.get('id'))).first()
   if chap is None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="user not found")
-  async with app.state.messageSesh.get('http://127.0.0.1:8002/checkBulk',params={"cand_id":chap.id}) as resp:
+  async with app.state.messageSesh.get('http://127.0.0.1:8002/checkBulk',params={"cand_id":chap.id},headers=internal_headers) as resp:
     application=await resp.json()
   if application:
     raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail="cannot delete profile when a application is active") 
-  async with app.state.messageSesh.put('http://127.0.0.1:8002/statusWithdrawerBulk',params={"cand_id":chap.id}) as resp:
-      green=await resp.json()
-  async with app.state.messageSesh.delete('http://127.0.0.1:8003/deleteUser',params={'id':chap.user_id}) as resp:
-      if resp.status != 200:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,detail="operation failed") 
-  if green:
-    if chap.resume_path is not None:
-      if os.path.exists(chap.resume_path):
-        os.remove(chap.resume_path)
-    chap.email=F"anonymous{chap.id}@gmail.com"
-    chap.resume_path=None
-    chap.user_id=None
-    chap.strengths=[]    
-    chap.name="anonymous"
-    def Save():
-      session.commit()
-      return "Resume has been deleted , can now delete your main profile with us."
-    await run_in_threadpool(Save)
+  else:
+     async with app.state.messageSesh.delete('http://127.0.0.1:8003/deleteUser',params={'id':chap.user_id},headers=internal_headers) as resp:
+               if resp.status != 200:
+                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,detail="operation failed")
+               done =await resp.json()
+  if not done:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Auth deletion returned false")             
+   
+  if done:
+    async with app.state.messageSesh.put('http://127.0.0.1:8002/statusWithdrawerBulk',params={"cand_id":chap.id},headers=internal_headers) as resp:
+          green=await resp.json()
+
+    if not green:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Application withdrawal returned false")      
+    if green:       
+      if chap.resume_path is not None:
+        if os.path.exists(chap.resume_path):
+          os.remove(chap.resume_path)
+      chap.email=F"anonymous{chap.id}@gmail.com"
+      chap.resume_path=None
+      chap.user_id=None
+      chap.strengths=[]    
+      chap.name="anonymous"
+      def Save():
+        session.commit()
+        return "Resume has been deleted , can now delete your main profile with us."
+      return await run_in_threadpool(Save)
 
 # single application withdrawal
 @app.put('/withdraw',summary="endpoint to with draw an application",description="withdraw an application based on application id")
-async def appWithdraw(session:SessionDep,app_id:int,user:dict=Depends(RoleCheck(['seeker']))):
+async def appWithdraw(request:Request,session:SessionDep,app_id:int,user:dict=Depends(RoleCheck(['seeker']))):
+  auth_token=request.headers.get("Authorization")
+  internal_headers={"Authorization":auth_token} if auth_token else {}
   seeker=session.exec(select(Seeker).where(Seeker.user_id==user.get('id'))).first()
   if not seeker:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="seeker profile not found,first create a seeker profile with your resume to access this service")
@@ -242,7 +256,7 @@ async def appWithdraw(session:SessionDep,app_id:int,user:dict=Depends(RoleCheck(
     body=await resp.json()
   if body.get('cand_id') != seeker.id:
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="you are only allowed to with draw your application, not your peers.")
-  async with app.state.messageSesh.put("http://127.0.0.1:8002/statusWithdrawerSingle",params={"id":app_id}) as resp:
+  async with app.state.messageSesh.put("http://127.0.0.1:8002/statusWithdrawerSingle",params={"id":app_id},headers=internal_headers) as resp:
     response_data = await resp.json()
         
     if resp.status != 200:
@@ -258,8 +272,10 @@ async def appWithdraw(session:SessionDep,app_id:int,user:dict=Depends(RoleCheck(
 #create some kind of job metric public endpoint or an endpoint that a seeker can see just how many applicants have applied for a job, where the applicant can only see the metric count and nothing else
 
 @app.get('/comptetion',summary="get the job metrics",description="no of applicants that applied to a specific job")
-async def seekerComp(job_id:int):
-  async with app.state.messageSesh.get("http://127.0.0.1:8002/metrics",params={"job_id":job_id}) as resp:
+async def seekerComp(request:Request,job_id:int,user:dict=Depends(RoleCheck(['seeker']))):
+  auth_token=request.headers.get("Authorization")
+  internal_headers={"Authorization":auth_token} if auth_token else {}
+  async with app.state.messageSesh.get("http://127.0.0.1:8002/metrics",params={"job_id":job_id},headers=internal_headers) as resp:
     num = await resp.json()
 
   return f"Number of applicants {num}"  
