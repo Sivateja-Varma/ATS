@@ -73,12 +73,12 @@ async def updateUser(request:Request,session:SessionDep,new:UserUpdate,user:dict
   await run_in_threadpool(Save) 
   if user.get('role') not in ["recruiter","staffing"]: 
 
-    async with app.state.messageSesh.get("http://127.0.0.1:8000/authSeeker",params={"id":person.id},headers=internal_headers) as resp:
+    async with app.state.messageSesh.get("http://127.0.0.1:8000/authSeeker",params={"id":person.id}) as resp:
       
       if resp.status==200:
         fact = await resp.json()
         body={"name":new.name,"email":new.email}  
-        async with app.state.messageSesh.put("http://127.0.0.1:8000/seekerUpdate",params={"id":fact.get('id')},json=body) as resp:
+        async with app.state.messageSesh.put("http://127.0.0.1:8000/seekerUpdate",params={"id":fact.get('id')},json=body,headers=internal_headers) as resp:
 
           final = await resp.json()  
           if resp.status != 200 :
@@ -108,7 +108,7 @@ def deleteUser(session:SessionDep,id:int,user:dict=Depends(RoleCheck(["seeker","
 
 # code a seperate recuiter endpoint and a public seeker endpoint , for security reasons , current implementation is faulty by design leaving a lot of gaps leading to security issues.
 @app.post('/registerRecruiter',summary="endpoint for recruit registration",description="new recruit is added , and can only be done by a already pre-existing recruit",response_model=UserPublic)
-def registerRecruiter(chap:FixedReq,session:SessionDep,user=Depends(RoleCheck(['staffing']))):
+def registerRecruiter(chap:FixedReq,session:SessionDep,user:dict=Depends(RoleCheck(['staffing']))):
   try:
     user = User(
           email=chap.email,

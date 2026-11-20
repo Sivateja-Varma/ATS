@@ -38,7 +38,7 @@ def oneJobPost(session:SessionDep,id:int):
   return posting
 
 @app.post("/createPosting")
-def createPosting(job:JobPostPublic,session:SessionDep,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
+def createPosting(job:JobPostPublic,session:SessionDep,recruiter:dict=Depends(RoleCheck(['recruiter','staffing']))):
   try:
     opportunity=JobPost(role=job.role,description=job.description,keywords=job.keywords,status=JobStatus.open,client_id=job.client_id,rounds=["Mock Round"]+job.rounds)
     session.add(opportunity)
@@ -50,7 +50,7 @@ def createPosting(job:JobPostPublic,session:SessionDep,recruiter:str=Depends(Rol
 
 
 @app.post("/applied")
-async def jobMetrics(request:Request,id:int,session:SessionDep,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
+async def jobMetrics(request:Request,id:int,session:SessionDep,recruiter:dict=Depends(RoleCheck(['recruiter','staffing']))):
   auth_token=request.headers.get("Authorization")
   internal_headers={"Authorization":auth_token} if auth_token else {}
   async with app.state.messageSesh.get('http://127.0.0.1:8002/applications',params={'job_id':id},headers=internal_headers) as resp:
@@ -64,14 +64,14 @@ async def jobMetrics(request:Request,id:int,session:SessionDep,recruiter:str=Dep
 
 
 @app.get('/searchCandidate')
-async def searchCandidate(search:str,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
+async def searchCandidate(search:str,recruiter:dict=Depends(RoleCheck(['recruiter','staffing']))):
   async with app.state.messageSesh.get('http://127.0.0.1:8000/seekers',params={"search":search}) as resp:
     candidates = await resp.json()
     return candidates
 
 
 @app.post('/recruit')
-async def recruitCandidate(request:Request,id:int,job:int,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
+async def recruitCandidate(request:Request,id:int,job:int,recruiter:dict=Depends(RoleCheck(['recruiter','staffing']))):
   auth_token=request.headers.get("Authorization")
   internal_headers={"Authorization":auth_token} if auth_token else {}
   async with app.state.messageSesh.post('http://127.0.0.1:8002/createApplication',json={"job_id":job,"cand_id":id},headers=internal_headers) as resp:
@@ -79,7 +79,7 @@ async def recruitCandidate(request:Request,id:int,job:int,recruiter:str=Depends(
     return candidate
 
 @app.put('/statusOpener')
-def statusOpen(id:int,session:SessionDep,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
+def statusOpen(id:int,session:SessionDep,recruiter:dict=Depends(RoleCheck(['recruiter','staffing']))):
   job=session.get(JobPost,id)
   if job.status in [JobStatus.hold , JobStatus.closed , None]: #is checks object identity for single object not to be used here
     job.status=JobStatus.open
@@ -91,7 +91,7 @@ def statusOpen(id:int,session:SessionDep,recruiter:str=Depends(RoleCheck(['recru
     return job  
 
 @app.put('/statusCloser')
-def statusClose(id:int,session:SessionDep,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
+def statusClose(id:int,session:SessionDep,recruiter:dict=Depends(RoleCheck(['recruiter','staffing']))):
   job=session.get(JobPost,id)
   if job.status in [JobStatus.hold , JobStatus.open , None]: #is checks object identity for single object not to be used here
     job.status=JobStatus.closed
@@ -103,7 +103,7 @@ def statusClose(id:int,session:SessionDep,recruiter:str=Depends(RoleCheck(['recr
     return job  
 
 @app.put('/statusHold')
-def statusHold(id:int,session:SessionDep,recruiter:str=Depends(RoleCheck(['recruiter','staffing']))):
+def statusHold(id:int,session:SessionDep,recruiter:dict=Depends(RoleCheck(['recruiter','staffing']))):
   job=session.get(JobPost,id)
   if job.status in [JobStatus.closed , JobStatus.open , None]: #is checks object identity for single object not to be used here
     job.status=JobStatus.hold
@@ -119,7 +119,7 @@ def statusHold(id:int,session:SessionDep,recruiter:str=Depends(RoleCheck(['recru
 # when working with moving a candidate forward or rejecting its important that recruiters forward applications not the candidate directly so use application id not cand_id -> this is very dangerous 
 
 @app.put('/forward')
-async def appForward(request:Request,id:int,update:str|None=None,user:dict=Depends(RoleCheck(['staffing','recruiter']))):
+async def appForward(request:Request,id:int,update:str|None=None,user:dict=Depends(RoleCheck(['recruiter','staffing']))):
   auth_token=request.headers.get("Authorization")
   internal_headers={"Authorization":auth_token} if auth_token else {}
   async with app.state.messageSesh.put('http://127.0.0.1:8002/forward',params={"id":id,"update":update},headers=internal_headers) as resp:
@@ -129,7 +129,7 @@ async def appForward(request:Request,id:int,update:str|None=None,user:dict=Depen
 
 
 @app.put('/reject')
-async def appReject(request:Request,id:int,update:str|None=None,user:dict=Depends(RoleCheck(['staffing','recruiter']))):
+async def appReject(request:Request,id:int,update:str|None=None,user:dict=Depends(RoleCheck(["recruiter","staffing"]))):
   auth_token=request.headers.get("Authorization")
   internal_headers={"Authorization":auth_token} if auth_token else {}
   async with app.state.messageSesh.put('http://127.0.0.1:8002/statusRejecter',params={"app_id":id,"update":update},headers=internal_headers) as resp:
