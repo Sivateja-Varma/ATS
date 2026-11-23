@@ -180,3 +180,10 @@ async def addClient(session:SessionDep,patner:ClientPublic,user:dict=Depends(Rol
    session.commit()
    session.refresh(new)
    return new
+
+@app.get("/clients")
+async def allClients(session:SessionDep,user:dict=Depends(RoleCheck(['staffing']))):
+   statement=select(Client)
+   new = await run_in_threadpool(session.exec,statement)
+   clients=new.all()
+   return clients
