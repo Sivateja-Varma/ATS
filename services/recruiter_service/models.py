@@ -1,4 +1,4 @@
-from sqlmodel import SQLModel,Field,JSON,Column,Relationship
+from sqlmodel import SQLModel,Field,JSON,Column,Relationship,UniqueConstraint
 from typing import List,Optional
 from enum import Enum
 from pydantic import field_validator
@@ -23,12 +23,15 @@ class JobPostPublic(SQLModel):
   description:str = Field(max_length=3000) 
   keywords:List[str]=Field(sa_column=Column(JSON)) 
   rounds:list[str]=Field(sa_column=Column(JSON))
-  client_id:int
+  client_id:int|None=Field(default=None)
 
 # a generic first round for every jobposting
  
 
 class JobPost(JobPostPublic,table=True):
+  __table_args__=(
+        UniqueConstraint("client_id","role",name="unq_check"),
+    )
   id : int | None= Field(default=None,primary_key=True)
   status:str | None = Field(default=None)
   client_id:int | None = Field(default=None,foreign_key="client.client_id")

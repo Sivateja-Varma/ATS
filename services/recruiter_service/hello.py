@@ -40,6 +40,7 @@ def oneJobPost(session:SessionDep,id:int):
 @app.post("/createPosting")
 def createPosting(job:JobPostPublic,session:SessionDep,recruiter:dict=Depends(RoleCheck(['recruiter','staffing']))):
   try:
+    #never give foreign key as 0 value if default is None 0 as a value not allowed
     opportunity=JobPost(role=job.role,description=job.description,keywords=job.keywords,status=JobStatus.open,client_id=job.client_id,rounds=["Mock Round"]+job.rounds)
     session.add(opportunity)
     session.commit()
@@ -187,3 +188,19 @@ async def allClients(session:SessionDep,user:dict=Depends(RoleCheck(['staffing']
    new = await run_in_threadpool(session.exec,statement)
    clients=new.all()
    return clients
+
+@app.put('/tagJob',status_code=status.HTTP_201_CREATED,summary="endpoint to tag jobs to client",description="tag a unique jobposting to a client,duplicates not allowed")
+def tagJob(session:SessionDep,job_id:int,client_id:int,recuiter:dict=Depends(RoleCheck(["staffing","recruiter"]))):
+   try:
+    job=session.get(JobPost,job_id)
+    client=session.get(Client,client_id)
+    if not client:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="client not found")
+    if not job:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="job not found")
+    job.client_id=client.client_id
+    session.commit()
+    session.refresh(job)
+    return job
+   except Exception as e:
+      raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="duplicates not allowed")
