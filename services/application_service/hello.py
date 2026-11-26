@@ -25,7 +25,7 @@ async def healthCheck():
   return {"service":"application_service","status":"live"}
 
 @app.get("/applications",summary="get all the applications that happened",description="end point provides all the applications ever created")
-async def allApplications(session:SessionDep,job_id:int|None=None,cand_id:int|None=None,user:dict=Depends(RoleCheck(['staffing','recruiter']))):
+async def allApplications(session:SessionDep,job_id:int|None=None,cand_id:int|None=None,user:dict=Depends(RoleCheck(['staffing','recruiter','seeker']))):
   try:
     if cand_id is not None:
        statement=select(Application).where(Application.cand_id==cand_id)
@@ -109,7 +109,7 @@ def is_match_helper(seeker_strength:str,keyword:str,threshold:int=85):
     return fuzz.ratio(seeker_strength,keyword)>threshold 
 
 
-@app.post('/createApplication')
+@app.post('/createApplication',status_code=status.HTTP_201_CREATED)
 async def createApplication(session:SessionDep,apply:ApplicationPublic,background:BackgroundTasks,check:dict=Depends(RoleCheck(['seeker','recruiter','staffing']))):
   try:
     if check.get('role') == 'seeker':
@@ -145,7 +145,7 @@ async def createApplication(session:SessionDep,apply:ApplicationPublic,backgroun
     else:
       raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="job not found")
   except Exception as e:
-     raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail=("you already applied to it"))  
+     raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE,detail=str(e))  
 
 @app.put('/forward')
 async def moveForward(id:int,session:SessionDep,background:BackgroundTasks,update:str|None=None,user:dict=Depends(RoleCheck(["recruiter","staffing"]))):

@@ -63,6 +63,7 @@ async def jobMetrics(request:Request,id:int,session:SessionDep,recruiter:dict=De
 
 #build some kind of search so that a recruiter can see candidates based on fields 
 
+#build the cancelled workflow of the job and also the client soft offloading
 
 @app.get('/searchCandidate')
 async def searchCandidate(search:str,recruiter:dict=Depends(RoleCheck(['recruiter','staffing']))):
@@ -183,7 +184,7 @@ async def addClient(session:SessionDep,patner:ClientPublic,user:dict=Depends(Rol
    return new
 
 @app.get("/clients")
-async def allClients(session:SessionDep,user:dict=Depends(RoleCheck(['staffing']))):
+async def allClients(session:SessionDep,user:dict=Depends(RoleCheck(['staffing','recruiter']))):
    statement=select(Client)
    new = await run_in_threadpool(session.exec,statement)
    clients=new.all()
@@ -204,3 +205,5 @@ def tagJob(session:SessionDep,job_id:int,client_id:int,recuiter:dict=Depends(Rol
     return job
    except Exception as e:
       raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="duplicates not allowed")
+
+# client soft offloading after the demo

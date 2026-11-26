@@ -290,7 +290,7 @@ async def appProgress(session:SessionDep,application_id:int,user:dict=Depends(Ro
   async with app.state.messageSesh.get('http://127.0.0.1:8002/application',params={"id":application_id}) as resp:
      body = await resp.json()
   if body.get('cand_id') != person.id:
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="you are only allowed to view others applications.")
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="you are only allowed to view your applications.")
   if body.get("status") == "rejected":
     return "your application has been rejected"
   if body.get("status") == "selected":
@@ -310,6 +310,27 @@ async def appProgress(session:SessionDep,application_id:int,user:dict=Depends(Ro
 
   if curr >= len(rounds):
         return "all rounds completed, awaiting final decision"
+
+@app.get("/myapplications",status_code=status.HTTP_200_OK)
+async def myApplications(request:Request,session:SessionDep,user:dict=Depends(RoleCheck(["seeker"]))):
+   auth_token=request.headers.get("Authorization")
+   internal_headers={"Authorization":auth_token} if auth_token else {}
+   query=select(Seeker).where(Seeker.user_id==user.get("id"))
+   green = await run_in_threadpool(session.exec,query)
+   if green:
+      print("i am green")
+      person=green.first()
+      print(person.id)
+      async with app.state.messageSesh.get("http://127.0.0.1:8002/applications",params={"cand_id":person.id},headers=internal_headers) as resp:
+            apps= await resp.json()
+            if resp.status!=200:
+               raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="no applications were found")
+      
+            return apps
+   else:
+      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="User doesn't exist")
+      
+  
   
 
   
